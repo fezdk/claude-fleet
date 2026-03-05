@@ -1,0 +1,32 @@
+{
+  "server": {
+    "port": 7700,
+    "host": "127.0.0.1",
+    "auth_token": ""
+  },
+  "mcp": {
+    "path": "/mcp"
+  },
+  "sessions": {
+    "progress_update_interval_minutes": 5,
+    "stale_timeout_minutes": 15,
+    "message_prefix": "[fleet]",
+    "queue_check_interval_seconds": 5
+  },
+  "tmux": {
+    "session_prefix": "fleet-",
+    "input_inject_delay_ms": 150
+  },
+  "ui": {
+    "terminal_capture_lines": 50,
+    "max_status_history": 100
+  },
+  "notifications": {
+    "on_awaiting_input": true,
+    "on_error": true,
+    "on_task_complete": true,
+    "on_stale": true,
+    "telegram_token": "",
+    "telegram_chat_id": ""
+  }
+}

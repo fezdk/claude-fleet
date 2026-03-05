@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Fleet Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Fleet Manager</h1>
+    <div class="header-right">
+      <span id="session-count" class="badge badge-info">0 sessions</span>
+      <span id="ws-status" class="badge badge-disconnected">disconnected</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Dashboard: session list -->
+    <section id="dashboard">
+      <div id="pending-questions-banner" class="banner hidden">
+        <span id="pending-count">0</span> pending question(s) across sessions
+      </div>
+      <div id="sessions-list"></div>
+    </section>
+
+    <!-- Session detail (hidden by default) -->
+    <section id="session-detail" class="hidden">
+      <nav class="detail-nav">
+        <button id="back-btn" onclick="showDashboard()">&larr; All Sessions</button>
+        <div class="detail-nav-actions">
+          <button class="btn-sm" onclick="loadOutput(currentSessionId)">Refresh Output</button>
+          <button class="btn-sm btn-danger" onclick="deleteCurrentSession()">Remove</button>
+        </div>
+      </nav>
+      <div id="detail-header"></div>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <h3>Pending Questions</h3>
+          <div id="questions-container"></div>
+        </div>
+        <div class="panel">
+          <h3>Send Message</h3>
+          <form id="message-form">
+            <textarea id="message-input" placeholder="Type instructions for this session..." rows="3"></textarea>
+            <div class="form-actions">
+              <label><input type="checkbox" id="msg-urgent"> Urgent (interrupt working session)</label>
+              <button type="submit">Send</button>
+            </div>
+          </form>
+          <div id="message-status" class="msg-status hidden"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Terminal Output</h3>
+          <label class="toggle-label">
+            <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()">
+            Auto-refresh
+          </label>
+        </div>
+        <pre id="terminal-output"></pre>
+      </div>
+
+      <div class="panel">
+        <h3>Status History</h3>
+        <div id="status-log"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
