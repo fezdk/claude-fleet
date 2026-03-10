@@ -16,7 +16,7 @@ from fleet_manager.config import get_config
 
 # Paths that skip auth
 _SKIP_PREFIXES = ("/mcp", "/style", "/app.", "/favicon")
-_SKIP_EXACT = {"/", "/ws"}
+_SKIP_EXACT = {"/", "/ws", "/api/auth/check"}
 
 
 class AuthMiddleware:

@@ -32,6 +32,7 @@ async def report_status(
     summary: str,
     project_root: str,
     detail: str = "",
+    claude_session_id: str = "",
 ) -> dict[str, Any]:
     """Report your current status to the fleet manager.
 
@@ -44,11 +45,18 @@ async def report_status(
         summary: Human-readable summary of what you did/are doing/went wrong. Under 200 chars.
         project_root: Absolute path to the project you're working in.
         detail: Optional longer context — accomplishments, blockers, next steps.
+        claude_session_id: Your Claude Code session UUID. Include on your FIRST report_status call.
     """
     if state not in VALID_STATES:
         return {"error": f"Invalid state '{state}'. Must be one of {sorted(VALID_STATES)}"}
 
     session = db.update_status(session_id, state, summary, project_root, detail or None)
+
+    if claude_session_id:
+        db.update_claude_session_id(session_id, claude_session_id)
+        session = db.get_session(session_id)
+        logger.info("[%s] Claude session ID registered: %s", session_id, claude_session_id)
+
     await ws_manager.broadcast("session:update", session)
     await notify_state_change(session_id, state, summary)
     logger.info("[%s] %s → %s: %s", session_id, state, summary, detail or "")

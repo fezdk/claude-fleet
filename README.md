@@ -64,6 +64,20 @@ FLEET_HOST=127.0.0.1
 FLEET_AUTH_TOKEN=your-secret-token
 ```
 
+### Remote Access
+
+The server binds to localhost by default. For remote access (e.g. from a laptop or phone), use an SSH tunnel:
+
+```bash
+# One-time tunnel (survives server restarts)
+ssh -f -N -L 7700:127.0.0.1:7700 your-server
+
+# Auto-reconnecting tunnel
+autossh -M 0 -f -N -L 7700:127.0.0.1:7700 your-server
+```
+
+Then access the dashboard at `http://127.0.0.1:7700` on your local machine.
+
 ## Registering the MCP Server (one-time)
 
 Claude Code needs to know about the fleet manager's MCP server. Register it once:
@@ -79,9 +93,12 @@ claude mcp add --transport sse --scope project fleet-manager http://127.0.0.1:77
 ```
 
 > **Note:** The fleet manager server must be running when Claude Code starts a session,
-> otherwise the MCP connection will fail. If you restart the server, restart Claude Code too.
+> otherwise the MCP connection will fail. If you restart the server, Claude Code sessions
+> will attempt to reconnect automatically (see [MCP Connection Recovery](#mcp-connection-recovery)).
 
 ## Starting Sessions
+
+### From the CLI
 
 With the server running, open a new terminal and activate the venv:
 
@@ -105,9 +122,30 @@ fleet start --name ml --project /path/to/ml -d
 fleet attach api
 ```
 
+### From the Web UI
+
+Click **+ New Session** in the dashboard header. Enter the project path (absolute path on the server) and optionally a session name (defaults to the directory name). The session launches detached — use the dashboard to monitor and interact.
+
+### Session Lifecycle
+
 To detach from a session without stopping it, press **Ctrl+B, D** (the tmux status bar at the bottom reminds you of this). You can reattach later with `fleet attach <name>`.
 
-Open the dashboard at `http://127.0.0.1:7700` to monitor and control all sessions.
+Stopping a session (via `fleet stop <name>` or the **Stop** button in the web UI) kills the tmux session, terminates Claude Code, and removes the session from the database.
+
+### Forking Sessions
+
+Fork creates a new session that branches from an existing session's conversation history using Claude's `--resume --fork-session` flags. The forked session starts with full context of what the original session was doing.
+
+```bash
+# Fork from CLI
+fleet fork api api-refactor
+fleet fork api api-refactor -d   # Forked session, detached
+
+# Fork from the Web UI
+# Click "Open" on a session, then click the "Fork" button in the focus modal header
+```
+
+Forking requires the source session to have reported its Claude session ID (happens automatically on first `report_status` call). If the Fork button is not visible in the UI, the session hasn't reported yet.
 
 ### CLI Commands
 
@@ -116,16 +154,17 @@ fleet start --name <name> --project <path>   # Start a session
 fleet start --name <name> --project <path> -d # Start detached
 fleet list                                    # List sessions
 fleet attach <name>                           # Attach to tmux
+fleet fork <name> <new-name>                  # Fork session (branch conversation)
 fleet stop <name>                             # Stop session + cleanup
-fleet clean <project-path>                    # Remove fleet instructions from CLAUDE.md
 ```
 
 `fleet start` will:
 1. Create a tmux session `fleet-<name>`
-2. Inject fleet instructions into the project's `CLAUDE.md`
-3. Register the MCP server with Claude Code (if not already registered)
-4. Launch Claude Code in the tmux session
-5. Attach to the session (unless `-d` is passed)
+2. Register the MCP server with Claude Code (if not already registered)
+3. Launch Claude Code with fleet instructions via `--append-system-prompt`
+4. Attach to the session (unless `-d` is passed)
+
+Fleet instructions are injected as a system prompt at launch time — no modifications to the project's `CLAUDE.md` are needed.
 
 ### MCP Tools
 
@@ -136,13 +175,26 @@ Each Claude Code session gets two tools:
 | `report_status` | Report state transitions (IDLE/WORKING/AWAITING_INPUT/ERROR) |
 | `relay_question` | Mirror questions for remote clients before asking in terminal |
 
+### MCP Connection Recovery
+
+If the fleet manager server restarts, active Claude Code sessions will lose their MCP connection (typically showing error `-32602`). The fleet system prompt instructs sessions to:
+
+1. Continue working normally without fleet tools
+2. Attempt to re-register the MCP server via `claude mcp remove/add`
+3. Re-report status after reconnecting
+4. Fall back gracefully if reconnection fails
+
 ### Web UI
 
 Dashboard at `http://127.0.0.1:7700`:
-- Session list with state indicators and pending question badges
-- Session detail: terminal output, question forms, message input
-- Auto-refresh terminal output
-- Browser notifications for questions and errors
+
+- **Session list** — cards with state indicators, pending question badges, and Open/detail buttons
+- **Focus view** — click "Open" on a session card to get a large terminal output modal with auto-refresh (3s) and an input bar for sending instructions
+- **Multi view** — click "Multi View" in the header to see all session terminals side-by-side in a responsive grid, auto-refreshing. Click any pane to open its focus view
+- **Session detail** — click the session name for the full detail page with questions, messages, terminal output, and status history
+- **Question modals** — when a session asks a question, a modal appears on top of the focus view for answering
+- **New Session** — start sessions directly from the dashboard with project path auto-naming
+- **Login** — when auth is enabled, a login prompt appears; token is stored in localStorage
 
 ### Orchestrator
 
@@ -184,20 +236,40 @@ Or in `config/default.json`:
 }
 ```
 
+## Authentication
+
+Set `FLEET_AUTH_TOKEN` to protect all API, WebSocket, and Web UI access:
+
+```bash
+FLEET_AUTH_TOKEN=your-secret-token python -m fleet_manager.server
+```
+
+When auth is enabled:
+- The **Web UI** shows a login prompt on first visit. Enter the token to authenticate — it's stored in `localStorage` and persists across page reloads.
+- **API requests** must include `Authorization: Bearer <token>` header.
+- **WebSocket** connections must include `?token=<token>` query parameter.
+- A **logout** button appears in the header to clear the stored token.
+- The `/api/auth/check` endpoint is publicly accessible and returns whether auth is enabled, so the UI can detect when login is needed.
+
+When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works without a token.
+
 ## REST API
 
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/sessions` | List all sessions |
 | POST | `/api/sessions` | Register a session |
+| POST | `/api/sessions/start` | Start a new session (creates tmux + launches Claude) |
 | GET | `/api/sessions/:id` | Session detail + status log |
 | GET | `/api/sessions/:id/output` | Terminal output (via tmux) |
-| DELETE | `/api/sessions/:id` | Remove session |
+| POST | `/api/sessions/:id/fork` | Fork session (branch conversation into new session) |
+| DELETE | `/api/sessions/:id` | Stop + remove session (kills tmux) |
 | POST | `/api/sessions/:id/message` | Send instructions to session |
 | GET | `/api/questions?pending=true` | Pending questions |
 | GET | `/api/questions/:session_id` | Questions for a session |
 | POST | `/api/questions/:id/answer` | Answer a question |
 | GET | `/api/health` | Server health + stats |
+| GET | `/api/auth/check` | Check if auth is required + validate token |
 
 ## WebSocket Events
 
@@ -212,9 +284,10 @@ Or in `config/default.json`:
 ## Security
 
 - Bind to `127.0.0.1` by default (localhost only)
-- Optional bearer token auth on all API/WS endpoints
-- For remote access: use Tailscale, WireGuard, or Cloudflare Tunnel
+- Optional bearer token auth on all API/WS/Web UI endpoints (see [Authentication](#authentication))
+- For remote access: use SSH tunnel, Tailscale, WireGuard, or Cloudflare Tunnel
 - MCP server accessible only to local Claude Code sessions
+- tmux exact session matching (`=` prefix) prevents cross-session interference
 
 ## Configuration
 
@@ -237,19 +310,20 @@ fleet_manager/
   config.py            Configuration loader
   db.py                SQLite schema and CRUD
   mcp_server.py        MCP tools (report_status, relay_question)
-  tmux_bridge.py       tmux capture/inject
+  tmux_bridge.py       tmux capture/inject (exact session matching)
   ws_manager.py        WebSocket broadcast
   auth.py              Bearer token middleware
+  session_launcher.py  Shared session start/stop logic (CLI + API)
   notifications.py     Telegram + notification rules
   orchestrator.py      AI orchestrator client
-  prompt_template.py   CLAUDE.md fleet instructions
-  cli.py               fleet CLI
+  prompt_template.py   Fleet system prompt generator
+  cli.py               fleet CLI (thin wrapper around session_launcher)
   api/
-    sessions.py        Session endpoints
+    sessions.py        Session endpoints (incl. start/stop)
     questions.py       Question endpoints
     messages.py        Message endpoints
 web/
-  index.html           Dashboard UI
+  index.html           Dashboard UI (modals: login, new session, focus, multi, question)
   app.js               Client-side JS
   style.css            Styles
 config/

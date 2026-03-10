@@ -5,12 +5,21 @@ let ws = null;
 let currentSessionId = null;
 let autoRefreshTimer = null;
 let pendingQuestionsMap = {};  // session_id -> count
+let authRequired = false;
+let focusSessionId = null;
+let focusRefreshTimer = null;
 
 // ── WebSocket ──
 
+function getAuthToken() {
+  return localStorage.getItem('fleet_auth_token');
+}
+
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  const token = getAuthToken();
+  const params = token ? `?token=${encodeURIComponent(token)}` : '';
+  ws = new WebSocket(`${proto}//${location.host}/ws${params}`);
 
   ws.onopen = () => {
     document.getElementById('ws-status').textContent = 'live';
@@ -35,10 +44,16 @@ function handleEvent(event, data) {
     if (currentSessionId && data.session_id === currentSessionId) {
       loadSessionDetail(currentSessionId);
     }
+    if (focusSessionId && data.session_id === focusSessionId) {
+      updateFocusHeader(data);
+    }
   } else if (event === 'question:new') {
     refreshDashboard();
     if (currentSessionId && data.session_id === currentSessionId) {
       loadQuestions(currentSessionId);
+    }
+    if (focusSessionId && data.session_id === focusSessionId) {
+      showQuestionModal(data.session_id);
     }
     notify('Question', data.context || 'A session needs input', data.session_id);
   } else if (event === 'question:answered') {
@@ -70,8 +85,10 @@ function notify(title, body, sessionId) {
 // ── API helpers ──
 
 async function api(path, opts = {}) {
+  const token = getAuthToken();
+  const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
   const res = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    headers: { 'Content-Type': 'application/json', ...authHeaders, ...opts.headers },
     ...opts,
   });
   if (!res.ok) {
@@ -125,13 +142,16 @@ async function refreshDashboard() {
       const qCount = pendingQuestionsMap[s.session_id] || 0;
       const hasQ = qCount > 0;
       return `
-        <div class="session-card${hasQ ? ' has-question' : ''}" onclick="showSession('${s.session_id}')">
+        <div class="session-card${hasQ ? ' has-question' : ''}">
           ${hasQ ? `<span class="question-badge">${qCount} ?</span>` : ''}
           <div class="row">
-            <span class="name">${esc(s.session_id)}</span>
-            <span class="state state-${s.state}">${s.state}</span>
+            <span class="name" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.session_id)}</span>
+            <div style="display:flex;gap:0.4rem;align-items:center">
+              <span class="state state-${s.state}">${s.state}</span>
+              <button class="btn-sm btn-focus" onclick="event.stopPropagation();openFocus('${s.session_id}')">Open</button>
+            </div>
           </div>
-          <div class="summary">${esc(s.summary || 'No status reported')}</div>
+          <div class="summary" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.summary || 'No status reported')}</div>
           <div class="meta">
             ${s.project_root ? esc(s.project_root) + ' &middot; ' : ''}${timeAgo(s.last_seen)}
           </div>
@@ -336,7 +356,7 @@ function showMessageStatus(text, type) {
 
 async function deleteCurrentSession() {
   if (!currentSessionId) return;
-  if (!confirm(`Remove session "${currentSessionId}" from fleet manager?`)) return;
+  if (!confirm(`Stop and remove session "${currentSessionId}"? This will kill the tmux session.`)) return;
   try {
     await api(`/api/sessions/${currentSessionId}`, { method: 'DELETE' });
     showDashboard();
@@ -372,13 +392,464 @@ function fmtTime(ts) {
   }
 }
 
+// ── Multi View ──
+
+let multiRefreshTimer = null;
+
+async function openMultiView() {
+  document.getElementById('multi-overlay').classList.remove('hidden');
+  await refreshMultiView();
+  multiRefreshTimer = setInterval(refreshMultiView, 3000);
+}
+
+function closeMultiView() {
+  document.getElementById('multi-overlay').classList.add('hidden');
+  if (multiRefreshTimer) {
+    clearInterval(multiRefreshTimer);
+    multiRefreshTimer = null;
+  }
+}
+
+async function refreshMultiView() {
+  try {
+    const sessions = await api('/api/sessions');
+    const grid = document.getElementById('multi-grid');
+
+    // Calculate grid layout
+    const count = sessions.length || 1;
+    const cols = count <= 1 ? 1 : count <= 4 ? 2 : 3;
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    // Build panes (preserve scroll positions)
+    const existingPanes = {};
+    grid.querySelectorAll('.multi-pane-terminal').forEach(el => {
+      existingPanes[el.dataset.sid] = el.scrollTop;
+    });
+
+    grid.innerHTML = sessions.map(s => `
+      <div class="multi-pane">
+        <div class="multi-pane-header">
+          <span class="pane-title">${esc(s.session_id)}</span>
+          <span class="state state-${s.state}">${s.state}</span>
+        </div>
+        <pre class="multi-pane-terminal" data-sid="${s.session_id}" onclick="closeMultiView();openFocus('${s.session_id}')"
+             style="cursor:pointer" title="Click to open focused view"></pre>
+      </div>
+    `).join('');
+
+    // Load outputs in parallel
+    await Promise.all(sessions.map(async s => {
+      const pre = grid.querySelector(`[data-sid="${s.session_id}"]`);
+      if (!pre) return;
+      try {
+        const data = await api(`/api/sessions/${s.session_id}/output`);
+        pre.textContent = data.output || '(empty)';
+        // Restore scroll or scroll to bottom
+        if (existingPanes[s.session_id] !== undefined) {
+          pre.scrollTop = existingPanes[s.session_id];
+        } else {
+          pre.scrollTop = pre.scrollHeight;
+        }
+      } catch {
+        pre.textContent = '(no output)';
+      }
+    }));
+  } catch (e) {
+    console.error('Multi view refresh error:', e);
+  }
+}
+
+// ── Session Focus Modal ──
+
+async function openFocus(sessionId) {
+  focusSessionId = sessionId;
+  document.getElementById('focus-overlay').classList.remove('hidden');
+  document.getElementById('focus-msg-input').value = '';
+  document.getElementById('focus-msg-status').classList.add('hidden');
+  document.getElementById('focus-fork-btn').classList.add('hidden');
+
+  // Load session info + output
+  try {
+    const s = await api(`/api/sessions/${sessionId}`);
+    updateFocusHeader(s);
+    if (s.claude_session_id) {
+      document.getElementById('focus-fork-btn').classList.remove('hidden');
+    }
+  } catch {}
+  await loadFocusOutput();
+
+  // Auto-refresh output every 3s
+  focusRefreshTimer = setInterval(loadFocusOutput, 3000);
+
+  // Check for pending questions
+  showQuestionModal(sessionId);
+}
+
+function updateFocusHeader(s) {
+  document.getElementById('focus-name').textContent = s.session_id || focusSessionId;
+  const stateEl = document.getElementById('focus-state');
+  stateEl.textContent = s.state || '';
+  stateEl.className = `state state-${s.state || 'IDLE'}`;
+  document.getElementById('focus-summary').textContent = s.summary || '';
+}
+
+async function loadFocusOutput() {
+  if (!focusSessionId) return;
+  const pre = document.getElementById('focus-terminal');
+  try {
+    const data = await api(`/api/sessions/${focusSessionId}/output`);
+    const wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
+    pre.textContent = data.output || '(empty)';
+    if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
+  } catch {
+    pre.textContent = '(could not capture terminal output)';
+  }
+}
+
+function closeFocus() {
+  focusSessionId = null;
+  document.getElementById('focus-overlay').classList.add('hidden');
+  if (focusRefreshTimer) {
+    clearInterval(focusRefreshTimer);
+    focusRefreshTimer = null;
+  }
+  // Turn off keyboard capture
+  keyboardCaptureEnabled = false;
+  const toggle = document.getElementById('keyboard-capture-toggle');
+  if (toggle) toggle.checked = false;
+  const terminal = document.getElementById('focus-terminal');
+  terminal.classList.remove('keyboard-active');
+}
+
+async function forkFocusSession() {
+  if (!focusSessionId) return;
+  const newName = prompt(`Fork "${focusSessionId}" — enter a name for the new session:`);
+  if (!newName || !newName.trim()) return;
+
+  try {
+    await api(`/api/sessions/${focusSessionId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ new_name: newName.trim() }),
+    });
+    closeFocus();
+    refreshDashboard();
+    // Open the new forked session after a brief delay for it to register
+    setTimeout(() => openFocus(newName.trim()), 1500);
+  } catch (e) {
+    alert(`Fork failed: ${e.message.replace(/^400:\s*/, '').replace(/^"/, '').replace(/"$/, '')}`);
+  }
+}
+
+async function deleteFocusSession() {
+  if (!focusSessionId) return;
+  if (!confirm(`Stop and remove session "${focusSessionId}"? This will kill the tmux session.`)) return;
+  try {
+    await api(`/api/sessions/${focusSessionId}`, { method: 'DELETE' });
+    closeFocus();
+    refreshDashboard();
+  } catch (e) {
+    alert(`Failed: ${e.message}`);
+  }
+}
+
+// ── Raw Key Sending ──
+
+let keyboardCaptureEnabled = false;
+
+async function sendKey(key) {
+  if (!focusSessionId) return;
+  try {
+    await api(`/api/sessions/${focusSessionId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ keys: [key] }),
+    });
+    // Briefly flash the terminal to show key was sent
+    const terminal = document.getElementById('focus-terminal');
+    terminal.style.outline = '1px solid var(--accent)';
+    setTimeout(() => { terminal.style.outline = ''; }, 150);
+  } catch (e) {
+    console.error('Key send error:', e);
+  }
+}
+
+function toggleKeyboardCapture() {
+  keyboardCaptureEnabled = document.getElementById('keyboard-capture-toggle').checked;
+  const terminal = document.getElementById('focus-terminal');
+  if (keyboardCaptureEnabled) {
+    terminal.classList.add('keyboard-active');
+    terminal.setAttribute('tabindex', '0');
+    terminal.focus();
+  } else {
+    terminal.classList.remove('keyboard-active');
+    terminal.removeAttribute('tabindex');
+  }
+}
+
+// Capture keyboard events when keyboard mode is on and focus modal is open
+document.addEventListener('keydown', (e) => {
+  if (!keyboardCaptureEnabled || !focusSessionId) return;
+  // Don't capture if typing in an input/textarea
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+  const keyMap = {
+    'ArrowUp': 'Up',
+    'ArrowDown': 'Down',
+    'ArrowLeft': 'Left',
+    'ArrowRight': 'Right',
+    'Enter': 'Enter',
+    'Escape': 'Escape',
+    'Tab': 'Tab',
+    ' ': 'Space',
+    'Backspace': 'BSpace',
+    'Delete': 'DC',
+    'Home': 'Home',
+    'End': 'End',
+    'PageUp': 'PageUp',
+    'PageDown': 'PageDown',
+  };
+
+  // Single character keys: y, n
+  const singleKeys = { 'y': 'y', 'n': 'n' };
+
+  const mapped = keyMap[e.key] || singleKeys[e.key];
+  if (mapped) {
+    e.preventDefault();
+    sendKey(mapped);
+  }
+});
+
+document.getElementById('focus-message-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('focus-msg-input');
+  const content = input.value.trim();
+  if (!content || !focusSessionId) return;
+
+  try {
+    const result = await api(`/api/sessions/${focusSessionId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ content, urgent: false, from_client: 'web' }),
+    });
+    input.value = '';
+    const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
+    const el = document.getElementById('focus-msg-status');
+    el.textContent = `Sent (${method})`;
+    el.className = 'msg-status success';
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3000);
+  } catch (e) {
+    const el = document.getElementById('focus-msg-status');
+    el.textContent = `Failed: ${e.message}`;
+    el.className = 'msg-status error';
+    el.classList.remove('hidden');
+  }
+});
+
+// ── Question Modal ──
+
+async function showQuestionModal(sessionId) {
+  try {
+    const questions = await api(`/api/questions/${sessionId}`);
+    if (questions.length === 0) return;
+
+    document.getElementById('qm-session').textContent = sessionId;
+    const container = document.getElementById('qm-questions');
+    container.innerHTML = questions.map(q => {
+      const items = JSON.parse(q.items);
+      return `
+        <div class="question-item" data-qid="${q.question_id}">
+          ${q.context ? `<div class="q-context">${esc(q.context)}</div>` : ''}
+          ${items.map(renderQuestionInput).join('')}
+          <button onclick="submitFocusAnswer('${q.question_id}')">Submit Answer</button>
+        </div>
+      `;
+    }).join('');
+    document.getElementById('question-overlay').classList.remove('hidden');
+  } catch {}
+}
+
+function closeQuestionModal() {
+  document.getElementById('question-overlay').classList.add('hidden');
+}
+
+async function submitFocusAnswer(questionId) {
+  const container = document.querySelector(`#qm-questions [data-qid="${questionId}"]`);
+  const answer = {};
+
+  container.querySelectorAll('input[type="text"], select').forEach(el => {
+    const itemId = el.id.replace('q-', '');
+    answer[itemId] = el.value;
+  });
+  container.querySelectorAll('input[type="checkbox"]:checked').forEach(el => {
+    const cls = [...el.classList].find(c => c.startsWith('ms-'));
+    if (cls) {
+      const itemId = cls.replace('ms-', '');
+      if (!answer[itemId]) answer[itemId] = [];
+      answer[itemId].push(el.value);
+    }
+  });
+
+  try {
+    await api(`/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    });
+    // Refresh — if no more questions, close modal
+    const remaining = await api(`/api/questions/${focusSessionId}`);
+    if (remaining.length === 0) {
+      closeQuestionModal();
+    } else {
+      showQuestionModal(focusSessionId);
+    }
+  } catch (e) {
+    console.error('Answer error:', e);
+  }
+}
+
+// ── New Session ──
+
+function showNewSessionModal() {
+  document.getElementById('new-session-overlay').classList.remove('hidden');
+  document.getElementById('ns-project').value = '';
+  document.getElementById('ns-name').value = '';
+  document.getElementById('ns-error').classList.add('hidden');
+  document.getElementById('ns-project').focus();
+}
+
+function hideNewSessionModal() {
+  document.getElementById('new-session-overlay').classList.add('hidden');
+}
+
+function autoFillSessionName() {
+  const nameInput = document.getElementById('ns-name');
+  // Only auto-fill if user hasn't manually typed a name
+  if (nameInput.dataset.manual) return;
+  const project = document.getElementById('ns-project').value.trim().replace(/\/+$/, '');
+  const parts = project.split('/');
+  nameInput.placeholder = parts[parts.length - 1] || '(auto from path)';
+}
+
+// Track if user manually edited the name field
+document.getElementById('ns-name').addEventListener('input', function() {
+  this.dataset.manual = this.value.trim() ? '1' : '';
+});
+
+document.getElementById('new-session-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('ns-error');
+  const submitBtn = document.getElementById('ns-submit');
+  errorEl.classList.add('hidden');
+
+  const project = document.getElementById('ns-project').value.trim();
+  const name = document.getElementById('ns-name').value.trim();
+
+  if (!project) return;
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Starting...';
+
+  try {
+    await api('/api/sessions/start', {
+      method: 'POST',
+      body: JSON.stringify({ project, name }),
+    });
+    hideNewSessionModal();
+    refreshDashboard();
+  } catch (e) {
+    errorEl.textContent = e.message.replace(/^400:\s*/, '').replace(/^"/, '').replace(/"$/, '');
+    errorEl.classList.remove('hidden');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Start';
+  }
+});
+
+// ── Auth / Login ──
+
+function showLogin() {
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('login-token').focus();
+}
+
+function hideLogin() {
+  document.getElementById('login-overlay').classList.add('hidden');
+  document.getElementById('login-error').classList.add('hidden');
+  document.getElementById('login-token').value = '';
+}
+
+function logout() {
+  localStorage.removeItem('fleet_auth_token');
+  if (ws) ws.close();
+  document.getElementById('logout-btn').classList.add('hidden');
+  showLogin();
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const token = document.getElementById('login-token').value.trim();
+  if (!token) return;
+
+  const res = await fetch('/api/auth/check', {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  const data = await res.json();
+  if (data.valid) {
+    localStorage.setItem('fleet_auth_token', token);
+    hideLogin();
+    startApp();
+  } else {
+    document.getElementById('login-error').classList.remove('hidden');
+  }
+});
+
+async function checkAuth() {
+  const res = await fetch('/api/auth/check');
+  const data = await res.json();
+  authRequired = data.auth_required;
+
+  if (!authRequired) {
+    startApp();
+    return;
+  }
+
+  document.getElementById('logout-btn').classList.remove('hidden');
+
+  const token = getAuthToken();
+  if (!token) {
+    showLogin();
+    return;
+  }
+
+  // Validate stored token
+  const vRes = await fetch('/api/auth/check', {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  const vData = await vRes.json();
+  if (vData.valid) {
+    startApp();
+  } else {
+    localStorage.removeItem('fleet_auth_token');
+    showLogin();
+  }
+}
+
+function startApp() {
+  if (authRequired) {
+    document.getElementById('logout-btn').classList.remove('hidden');
+  }
+  connectWS();
+  refreshDashboard();
+}
+
 // ── Init ──
 
-connectWS();
-refreshDashboard();
+checkAuth();
 
 // Auto-refresh dashboard every 30s as fallback
-setInterval(refreshDashboard, 30000);
+setInterval(() => {
+  if (!document.getElementById('login-overlay').classList.contains('hidden')) return;
+  refreshDashboard();
+}, 30000);
 
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();

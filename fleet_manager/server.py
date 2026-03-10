@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from fleet_manager.config import load_config
+from fleet_manager.config import load_config, get_config
 from fleet_manager.db import (
     init_db, get_all_sessions, get_queued_messages,
     mark_message_delivered, update_status, create_session, get_session,
@@ -157,6 +157,20 @@ app.include_router(messages_router)
 app.mount("/mcp", mcp.sse_app())
 
 
+# Auth check endpoint (skips auth middleware)
+@app.get("/api/auth/check")
+async def auth_check(authorization: str | None = Header(None)):
+    token = get_config().server.auth_token
+    if not token:
+        return {"auth_required": False}
+    result = {"auth_required": True}
+    if authorization and authorization == f"Bearer {token}":
+        result["valid"] = True
+    elif authorization:
+        result["valid"] = False
+    return result
+
+
 # Health endpoint
 @app.get("/api/health")
 async def health():
@@ -194,8 +208,28 @@ if web_dir.exists():
     app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web")
 
 
+class _TokenRedactFilter(logging.Filter):
+    """Redact auth tokens from uvicorn access logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if hasattr(record, "args") and isinstance(record.args, tuple):
+            record.args = tuple(
+                str(a).replace(a.split("token=")[1].split("&")[0].split(" ")[0].split('"')[0], "***")
+                if isinstance(a, str) and "token=" in a
+                else a
+                for a in record.args
+            )
+        msg = record.getMessage()
+        if "token=" in msg:
+            import re
+            record.msg = re.sub(r"token=[^&\s\"']+", "token=***", record.msg)
+            record.args = None
+        return True
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    logging.getLogger("uvicorn.access").addFilter(_TokenRedactFilter())
     cfg = load_config()
     logger.info("Starting Fleet Manager on %s:%d", cfg.server.host, cfg.server.port)
     uvicorn.run(app, host=cfg.server.host, port=cfg.server.port)

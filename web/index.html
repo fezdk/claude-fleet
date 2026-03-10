@@ -10,8 +10,11 @@
   <header>
     <h1>Fleet Manager</h1>
     <div class="header-right">
+      <button id="new-session-btn" class="btn-sm btn-accent" onclick="showNewSessionModal()">+ New Session</button>
+      <button class="btn-sm" onclick="openMultiView()">Multi View</button>
       <span id="session-count" class="badge badge-info">0 sessions</span>
       <span id="ws-status" class="badge badge-disconnected">disconnected</span>
+      <button id="logout-btn" class="btn-sm hidden" onclick="logout()">Logout</button>
     </div>
   </header>
 
@@ -70,6 +73,104 @@
       </div>
     </section>
   </main>
+
+  <!-- Multi View Modal -->
+  <div id="multi-overlay" class="focus-overlay hidden" onclick="if(event.target===this)closeMultiView()">
+    <div class="multi-modal">
+      <div class="multi-header">
+        <h2>All Sessions</h2>
+        <button class="btn-sm" onclick="closeMultiView()">Close</button>
+      </div>
+      <div id="multi-grid"></div>
+    </div>
+  </div>
+
+  <!-- Session Focus Modal -->
+  <div id="focus-overlay" class="focus-overlay hidden" onclick="if(event.target===this)closeFocus()">
+    <div class="focus-modal">
+      <div class="focus-header">
+        <div class="focus-title">
+          <h2 id="focus-name"></h2>
+          <span id="focus-state" class="state"></span>
+          <span id="focus-summary" class="focus-summary-text"></span>
+        </div>
+        <div class="focus-actions">
+          <button id="focus-fork-btn" class="btn-sm btn-accent hidden" onclick="forkFocusSession()">Fork</button>
+          <button class="btn-sm btn-danger" onclick="deleteFocusSession()">Stop</button>
+          <button class="btn-sm" onclick="closeFocus()">Close</button>
+        </div>
+      </div>
+      <pre id="focus-terminal"></pre>
+      <div id="focus-keys-bar" class="keys-bar">
+        <div class="keys-group">
+          <button class="key-btn" onclick="sendKey('Up')" title="Up arrow">&#9650;</button>
+          <button class="key-btn" onclick="sendKey('Down')" title="Down arrow">&#9660;</button>
+          <button class="key-btn" onclick="sendKey('Left')" title="Left arrow">&#9664;</button>
+          <button class="key-btn" onclick="sendKey('Right')" title="Right arrow">&#9654;</button>
+        </div>
+        <div class="keys-group">
+          <button class="key-btn key-wide" onclick="sendKey('Enter')" title="Enter">Enter &#9166;</button>
+          <button class="key-btn" onclick="sendKey('Escape')" title="Escape">Esc</button>
+          <button class="key-btn" onclick="sendKey('Tab')" title="Tab">Tab</button>
+        </div>
+        <div class="keys-group">
+          <button class="key-btn key-confirm" onclick="sendKey('y')" title="Yes">y</button>
+          <button class="key-btn key-deny" onclick="sendKey('n')" title="No">n</button>
+          <button class="key-btn" onclick="sendKey('Space')" title="Space">Space</button>
+        </div>
+        <div class="keys-group keys-right">
+          <label class="toggle-label"><input type="checkbox" id="keyboard-capture-toggle" onchange="toggleKeyboardCapture()"> Keyboard</label>
+        </div>
+      </div>
+      <form id="focus-message-form" class="focus-input-area">
+        <input type="text" id="focus-msg-input" placeholder="Send instructions..." autocomplete="off">
+        <button type="submit" class="btn-accent">Send</button>
+      </form>
+      <div id="focus-msg-status" class="msg-status hidden"></div>
+    </div>
+  </div>
+
+  <!-- Question Modal (on top of focus) -->
+  <div id="question-overlay" class="focus-overlay hidden" onclick="if(event.target===this)closeQuestionModal()">
+    <div class="login-card question-modal-card">
+      <h2>Question from <span id="qm-session"></span></h2>
+      <div id="qm-questions"></div>
+      <button class="btn-sm" onclick="closeQuestionModal()" style="margin-top:0.75rem;width:100%">Dismiss</button>
+    </div>
+  </div>
+
+  <!-- New Session Modal -->
+  <div id="new-session-overlay" class="login-overlay hidden">
+    <div class="login-card">
+      <h2>New Session</h2>
+      <p>Start a new Claude Code session.</p>
+      <form id="new-session-form">
+        <label class="form-label" for="ns-project">Project path</label>
+        <input type="text" id="ns-project" placeholder="/home/user/projects/myapp" required
+               oninput="autoFillSessionName()">
+        <label class="form-label" for="ns-name">Session name</label>
+        <input type="text" id="ns-name" placeholder="(auto from path)">
+        <div id="ns-error" class="login-error hidden"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-sm" onclick="hideNewSessionModal()">Cancel</button>
+          <button type="submit" id="ns-submit">Start</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Login Modal -->
+  <div id="login-overlay" class="login-overlay hidden">
+    <div class="login-card">
+      <h2>Fleet Manager</h2>
+      <p>Enter your auth token to continue.</p>
+      <form id="login-form">
+        <input type="password" id="login-token" placeholder="Auth token" autocomplete="off" required>
+        <div id="login-error" class="login-error hidden">Invalid token</div>
+        <button type="submit">Login</button>
+      </form>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

@@ -1,23 +1,28 @@
 """Fleet Manager prompt template for Claude Code sessions.
 
-This generates the CLAUDE.md addition that instructs a Claude Code session
-how to participate in the fleet.
-
-The fleet section is wrapped in marker comments so it can be safely
-added/updated/removed without touching any other content in the file.
+Generates the system prompt that instructs a Claude Code session how to
+participate in the fleet. Passed via --append-system-prompt at launch.
 """
-
-import os
-
-# Unique markers that won't collide with user content
-_MARKER_START = "<!-- FLEET_MANAGER_START -->"
-_MARKER_END = "<!-- FLEET_MANAGER_END -->"
 
 FLEET_PROMPT_TEMPLATE = """\
 ## Fleet Manager Integration
 
 You are part of a managed fleet of Claude Code sessions. You have two MCP tools
 for fleet communication. Follow these rules strictly:
+
+### Your Session Identity
+- Your fleet session_id is: **{session_id}**
+- Always use this session_id in all fleet tool calls.
+
+### Claude Session ID
+Your `claude_session_id` is needed by the fleet manager to identify your Claude
+Code instance (used for forking sessions). Find it by running:
+  `ls -t ~/.claude/projects/$PROJECT_SLUG/*.jsonl`
+where PROJECT_SLUG is your absolute project path with `/` replaced by `-`
+(e.g., `/home/nezar/projects/tvnotify` becomes `-home-nezar-projects-tvnotify`).
+The first result is the most recent. Extract the UUID from the filename (strip
+the path and `.jsonl` extension). Include it in your first `report_status` call
+via the `claude_session_id` parameter.
 
 ### Status Reporting (MANDATORY)
 - Call `report_status` on EVERY state transition:
@@ -46,82 +51,21 @@ for fleet communication. Follow these rules strictly:
 - When you receive a `{prefix}` message, transition to WORKING and execute
   the instructions.
 
-### Your Session Identity
-- Your session_id is: {session_id}
-- Always use this session_id in all tool calls.
+### MCP Connection Recovery
+- If `report_status` or `relay_question` fails with error code -32602 or any
+  connection error, the fleet manager server was likely restarted and your
+  SSE session is stale.
+- When this happens:
+  1. Do NOT panic or stop working. Continue your current task normally.
+  2. Attempt to re-establish the connection by running this shell command:
+     `claude mcp remove fleet-manager && claude mcp add --transport sse fleet-manager {mcp_url}`
+  3. After reconnecting, call `report_status` to re-register with the fleet.
+  4. If reconnection fails, keep working — you are still functional without
+     fleet tools. Mention the connection issue in your terminal output so the
+     operator can see it.
 """
 
 
-def generate_prompt(session_id: str, prefix: str = "[fleet]") -> str:
+def generate_prompt(session_id: str, prefix: str = "[fleet]", mcp_url: str = "http://127.0.0.1:7700/mcp/sse") -> str:
     """Generate the fleet prompt for a specific session."""
-    return FLEET_PROMPT_TEMPLATE.format(session_id=session_id, prefix=prefix)
-
-
-def _build_block(session_id: str, prefix: str = "[fleet]") -> str:
-    """Build the full marked block for insertion."""
-    prompt = generate_prompt(session_id, prefix)
-    return f"{_MARKER_START}\n{prompt}{_MARKER_END}\n"
-
-
-def inject_into_claude_md(project_path: str, session_id: str, prefix: str = "[fleet]") -> str:
-    """Safely add/update fleet instructions in the project CLAUDE.md file.
-
-    Uses marker comments to isolate the fleet block. Never touches content
-    outside the markers. Returns the path to the modified file.
-    """
-    claude_md_path = os.path.join(project_path, "CLAUDE.md")
-    block = _build_block(session_id, prefix)
-
-    existing = ""
-    if os.path.exists(claude_md_path):
-        with open(claude_md_path) as f:
-            existing = f.read()
-
-    if _MARKER_START in existing and _MARKER_END in existing:
-        # Replace only the content between markers (inclusive)
-        start_idx = existing.index(_MARKER_START)
-        end_idx = existing.index(_MARKER_END) + len(_MARKER_END)
-        # Consume trailing newline if present
-        if end_idx < len(existing) and existing[end_idx] == "\n":
-            end_idx += 1
-        updated = existing[:start_idx] + block + existing[end_idx:]
-        with open(claude_md_path, "w") as f:
-            f.write(updated)
-    else:
-        # Append
-        with open(claude_md_path, "a") as f:
-            if existing and not existing.endswith("\n"):
-                f.write("\n")
-            f.write("\n" + block)
-
-    return claude_md_path
-
-
-def remove_from_claude_md(project_path: str) -> bool:
-    """Remove fleet instructions from the project CLAUDE.md file.
-
-    Returns True if the block was found and removed.
-    """
-    claude_md_path = os.path.join(project_path, "CLAUDE.md")
-    if not os.path.exists(claude_md_path):
-        return False
-
-    with open(claude_md_path) as f:
-        content = f.read()
-
-    if _MARKER_START not in content:
-        return False
-
-    start_idx = content.index(_MARKER_START)
-    end_idx = content.index(_MARKER_END) + len(_MARKER_END)
-    if end_idx < len(content) and content[end_idx] == "\n":
-        end_idx += 1
-    # Also strip the blank line before the block if present
-    if start_idx > 0 and content[start_idx - 1] == "\n":
-        start_idx -= 1
-
-    cleaned = content[:start_idx] + content[end_idx:]
-    with open(claude_md_path, "w") as f:
-        f.write(cleaned)
-
-    return True
+    return FLEET_PROMPT_TEMPLATE.format(session_id=session_id, prefix=prefix, mcp_url=mcp_url)

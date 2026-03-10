@@ -75,7 +75,17 @@ def init_db(db_path: str | Path | None = None) -> sqlite3.Connection:
     _db.execute("PRAGMA journal_mode = WAL")
     _db.execute("PRAGMA foreign_keys = ON")
     _create_schema()
+    _migrate(_db)
     return _db
+
+
+def _migrate(db: sqlite3.Connection) -> None:
+    """Run schema migrations for existing databases."""
+    cursor = db.execute("PRAGMA table_info(sessions)")
+    columns = {row["name"] for row in cursor.fetchall()}
+    if "claude_session_id" not in columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT")
+        db.commit()
 
 
 def _create_schema() -> None:
@@ -89,6 +99,7 @@ def _create_schema() -> None:
             state         TEXT DEFAULT 'IDLE',
             summary       TEXT,
             detail        TEXT,
+            claude_session_id TEXT,
             last_seen     DATETIME,
             created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -188,6 +199,15 @@ def update_status(
     db.commit()
     log_status(session_id, state, summary, detail)
     return get_session(session_id)  # type: ignore[return-value]
+
+
+def update_claude_session_id(session_id: str, claude_session_id: str) -> None:
+    db = get_db()
+    db.execute(
+        "UPDATE sessions SET claude_session_id = ? WHERE session_id = ?",
+        (claude_session_id, session_id),
+    )
+    db.commit()
 
 
 def delete_session(session_id: str) -> bool:

@@ -35,7 +35,7 @@ def strip_ansi(text: str) -> str:
 async def capture_output(tmux_session: str, pane: str = "0", lines: int = 50) -> str:
     """Capture the last N lines of a tmux pane."""
     _ensure_tmux()
-    target = f"{tmux_session}:{pane}"
+    target = f"={tmux_session}:{pane}"
     stdout, stderr, rc = await _run([
         "tmux", "capture-pane", "-t", target, "-p", "-S", f"-{lines}",
     ])
@@ -51,7 +51,7 @@ async def inject_input(tmux_session: str, pane: str = "0", text: str = "", submi
     enters the text into Claude Code's input, the second submits it.
     """
     _ensure_tmux()
-    target = f"{tmux_session}:{pane}"
+    target = f"={tmux_session}:{pane}"
 
     # Send the text content
     _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, text, "Enter"])
@@ -64,6 +64,16 @@ async def inject_input(tmux_session: str, pane: str = "0", text: str = "", submi
         _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, "Enter"])
         if rc != 0:
             raise RuntimeError(f"tmux send-keys (submit) failed: {stderr}")
+
+
+async def send_raw_keys(tmux_session: str, pane: str = "0", keys: list[str] | None = None) -> None:
+    """Send raw tmux key names (e.g. Up, Down, Enter, Escape) without any prefix or submit."""
+    _ensure_tmux()
+    target = f"={tmux_session}:{pane}"
+    for key in (keys or []):
+        _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, key])
+        if rc != 0:
+            raise RuntimeError(f"tmux send-keys failed for '{key}': {stderr}")
 
 
 async def inject_sequential(
@@ -95,7 +105,7 @@ async def list_sessions() -> list[str]:
 async def get_working_directory(tmux_session: str, pane: str = "0") -> str:
     """Get the current working directory of a tmux pane."""
     _ensure_tmux()
-    target = f"{tmux_session}:{pane}"
+    target = f"={tmux_session}:{pane}"
     stdout, stderr, rc = await _run([
         "tmux", "display-message", "-t", target, "-p", "#{pane_current_path}",
     ])
@@ -105,7 +115,14 @@ async def get_working_directory(tmux_session: str, pane: str = "0") -> str:
 
 
 async def session_exists(tmux_session: str) -> bool:
-    """Check if a tmux session exists."""
+    """Check if a tmux session exists (exact match)."""
     _ensure_tmux()
-    _, _, rc = await _run(["tmux", "has-session", "-t", tmux_session])
+    _, _, rc = await _run(["tmux", "has-session", "-t", f"={tmux_session}"])
+    return rc == 0
+
+
+async def kill_session(tmux_session: str) -> bool:
+    """Kill a tmux session (exact match). Returns True if it was running."""
+    _ensure_tmux()
+    _, _, rc = await _run(["tmux", "kill-session", "-t", f"={tmux_session}"])
     return rc == 0

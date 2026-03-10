@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from fleet_manager import db
 from fleet_manager.config import get_config
-from fleet_manager.tmux_bridge import inject_input
+from fleet_manager.tmux_bridge import inject_input, send_raw_keys
 from fleet_manager.ws_manager import ws_manager
 
 router = APIRouter(prefix="/api/sessions", tags=["messages"])
@@ -52,3 +52,35 @@ async def send_message(session_id: str, payload: MessagePayload):
 
     await ws_manager.broadcast("session:message", message)
     return message
+
+
+# Allowed tmux key names to prevent injection
+_ALLOWED_KEYS = {
+    "Up", "Down", "Left", "Right",
+    "Enter", "Escape", "Tab", "BTab",
+    "Space", "BSpace",
+    "Home", "End", "PageUp", "PageDown",
+    "DC",  # Delete
+    "y", "n",
+    "C-c", "C-d", "C-z",
+}
+
+
+class KeysPayload(BaseModel):
+    keys: list[str]
+
+
+@router.post("/{session_id}/keys")
+async def send_keys(session_id: str, payload: KeysPayload):
+    """Send raw keystrokes to a session's tmux pane (no [fleet] prefix)."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Session '{session_id}' not found")
+
+    # Validate keys to prevent arbitrary command injection
+    for key in payload.keys:
+        if key not in _ALLOWED_KEYS:
+            raise HTTPException(400, f"Key '{key}' is not allowed")
+
+    await send_raw_keys(session["tmux_session"], session["tmux_pane"], payload.keys)
+    return {"sent": payload.keys}

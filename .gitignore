@@ -8,3 +8,4 @@ build/
 .eggs/
 .claude/
 .mcp.json
+nohup.out
