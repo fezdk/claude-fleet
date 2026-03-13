@@ -1,6 +1,8 @@
 # Claude Fleet Manager
 
-Manage multiple Claude Code terminal sessions from remote clients (phone, laptop, or an orchestrator Claude). Each Claude Code session connects via MCP, state is tracked in SQLite, and input/output flows through tmux.
+Manage multiple Claude Code terminal sessions from a web dashboard. Start, monitor, and interact with sessions from any device — phone, laptop, or an orchestrator Claude.
+
+The fleet manager runs a local server that provides a real-time web UI for controlling your fleet: view terminal output, send instructions, answer questions, press keys, and launch or fork sessions — all from the browser. Under the hood, each Claude Code session connects via MCP, state is tracked in SQLite, and input/output flows through tmux.
 
 ## Architecture
 
