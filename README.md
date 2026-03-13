@@ -64,6 +64,11 @@ FLEET_HOST=127.0.0.1
 FLEET_AUTH_TOKEN=your-secret-token
 ```
 
+To gracefully restart the server (e.g. after a code update), send SIGHUP:
+```bash
+kill -HUP $(pgrep -f fleet_manager.server)
+```
+
 ### Remote Access
 
 The server binds to localhost by default. For remote access (e.g. from a laptop or phone), use an SSH tunnel:
@@ -189,11 +194,11 @@ If the fleet manager server restarts, active Claude Code sessions will lose thei
 Dashboard at `http://127.0.0.1:7700`:
 
 - **Session list** — cards with state indicators, pending question badges, and Open/detail buttons
-- **Focus view** — click "Open" on a session card to get a large terminal output modal with auto-refresh (3s) and an input bar for sending instructions
+- **Focus view** — click "Open" on a session card to get a large terminal output modal with auto-refresh (3s), an input bar for sending instructions, and a command dropdown for sending raw messages (slash commands, custom input without `[fleet]` prefix)
 - **Multi view** — click "Multi View" in the header to see all session terminals side-by-side in a responsive grid, auto-refreshing. Click any pane to open its focus view
 - **Session detail** — click the session name for the full detail page with questions, messages, terminal output, and status history
 - **Question modals** — when a session asks a question, a modal appears on top of the focus view for answering
-- **New Session** — start sessions directly from the dashboard with project path auto-naming
+- **New Session** — start sessions directly from the dashboard with project path autocomplete and auto-naming
 - **Login** — when auth is enabled, a login prompt appears; token is stored in localStorage
 
 ### Orchestrator
@@ -264,7 +269,8 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 | GET | `/api/sessions/:id/output` | Terminal output (via tmux) |
 | POST | `/api/sessions/:id/fork` | Fork session (branch conversation into new session) |
 | DELETE | `/api/sessions/:id` | Stop + remove session (kills tmux) |
-| POST | `/api/sessions/:id/message` | Send instructions to session |
+| POST | `/api/sessions/:id/message` | Send instructions to session (`raw: true` to skip prefix) |
+| GET | `/api/filesystem/complete?path=...` | Directory completion for path input |
 | GET | `/api/questions?pending=true` | Pending questions |
 | GET | `/api/questions/:session_id` | Questions for a session |
 | POST | `/api/questions/:id/answer` | Answer a question |
@@ -319,9 +325,10 @@ fleet_manager/
   prompt_template.py   Fleet system prompt generator
   cli.py               fleet CLI (thin wrapper around session_launcher)
   api/
-    sessions.py        Session endpoints (incl. start/stop)
+    sessions.py        Session endpoints (incl. start/stop/fork)
     questions.py       Question endpoints
-    messages.py        Message endpoints
+    messages.py        Message endpoints (raw mode support)
+    filesystem.py      Path completion endpoint
 web/
   index.html           Dashboard UI (modals: login, new session, focus, multi, question)
   app.js               Client-side JS
