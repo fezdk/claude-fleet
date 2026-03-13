@@ -17,6 +17,7 @@ class MessagePayload(BaseModel):
     content: str
     from_client: str = "web"
     urgent: bool = False
+    raw: bool = False  # If True, skip the [fleet] prefix
 
 
 @router.post("/{session_id}/message")
@@ -27,16 +28,16 @@ async def send_message(session_id: str, payload: MessagePayload):
 
     cfg = get_config()
     prefix = cfg.sessions.message_prefix
-    prefixed_content = f"{prefix} {payload.content}"
+    inject_content = payload.content if payload.raw else f"{prefix} {payload.content}"
 
-    message = db.create_inbox_message(session_id, payload.content, payload.from_client)
+    message = db.create_inbox_message(session_id, payload.content, payload.from_client, raw=payload.raw)
 
     state = session["state"]
 
     # Decide delivery strategy based on session state
     if state == "IDLE" or payload.urgent:
         # Inject immediately
-        await inject_input(session["tmux_session"], session["tmux_pane"], prefixed_content)
+        await inject_input(session["tmux_session"], session["tmux_pane"], inject_content)
         db.mark_message_delivered(message["message_id"])
         message["delivered"] = True
         message["delivery_method"] = "immediate"

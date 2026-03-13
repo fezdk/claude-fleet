@@ -500,6 +500,69 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
 .key-deny { border-color: var(--red); color: var(--red); }
 .key-deny:hover { background: #fee2e2; }
 .keyboard-active { outline: 2px solid var(--accent); outline-offset: -2px; }
+.key-cmd { background: var(--surface); border-color: var(--accent); color: var(--accent); min-width: 56px; }
+.key-cmd:hover { background: #dbeafe; }
+
+/* Command dropdown */
+.cmd-dropdown-wrapper { position: relative; }
+.cmd-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  min-width: 240px;
+  z-index: 20;
+  overflow: hidden;
+}
+.cmd-dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  gap: 1rem;
+}
+.cmd-dropdown-item:hover { background: var(--surface-hover); }
+.cmd-dropdown-item .cmd-name {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  color: var(--accent);
+}
+.cmd-dropdown-item .cmd-desc {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.cmd-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+}
+.cmd-dropdown-custom {
+  display: flex;
+  gap: 0.4rem;
+  padding: 8px;
+}
+.cmd-dropdown-custom input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  color: var(--text);
+}
+.cmd-dropdown-custom input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.cmd-dropdown-custom button {
+  padding: 6px 12px;
+  font-size: 0.78rem;
+}
 
 .focus-input-area {
   display: flex;
@@ -637,3 +700,39 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   border-color: var(--accent) !important;
 }
 .btn-accent:hover { opacity: 0.9; }
+
+/* Path autocomplete */
+.path-autocomplete-wrapper { position: relative; }
+.path-autocomplete {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+.path-autocomplete-item {
+  padding: 6px 12px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.path-autocomplete-item:hover,
+.path-autocomplete-item.active {
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+.path-autocomplete-item .dir-icon {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}

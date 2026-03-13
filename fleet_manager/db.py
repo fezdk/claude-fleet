@@ -87,6 +87,12 @@ def _migrate(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT")
         db.commit()
 
+    cursor = db.execute("PRAGMA table_info(inbox)")
+    inbox_columns = {row["name"] for row in cursor.fetchall()}
+    if "raw" not in inbox_columns:
+        db.execute("ALTER TABLE inbox ADD COLUMN raw BOOLEAN DEFAULT 0")
+        db.commit()
+
 
 def _create_schema() -> None:
     assert _db is not None
@@ -121,6 +127,7 @@ def _create_schema() -> None:
             session_id    TEXT NOT NULL,
             content       TEXT NOT NULL,
             from_client   TEXT,
+            raw           BOOLEAN DEFAULT 0,
             delivered     BOOLEAN DEFAULT 0,
             created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
             delivered_at  DATETIME,
@@ -285,13 +292,13 @@ def answer_question(question_id: str, answer: str) -> dict[str, Any] | None:
 # ── Inbox Messages ──
 
 def create_inbox_message(
-    session_id: str, content: str, from_client: str | None = None
+    session_id: str, content: str, from_client: str | None = None, raw: bool = False
 ) -> dict[str, Any]:
     db = get_db()
     message_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO inbox (message_id, session_id, content, from_client) VALUES (?, ?, ?, ?)",
-        (message_id, session_id, content, from_client),
+        "INSERT INTO inbox (message_id, session_id, content, from_client, raw) VALUES (?, ?, ?, ?, ?)",
+        (message_id, session_id, content, from_client, int(raw)),
     )
     db.commit()
     return get_message(message_id)  # type: ignore[return-value]

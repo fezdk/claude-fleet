@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
+  <header id="app-header" class="hidden">
     <h1>Fleet Manager</h1>
     <div class="header-right">
       <button id="new-session-btn" class="btn-sm btn-accent" onclick="showNewSessionModal()">+ New Session</button>
@@ -18,7 +18,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="app-main" class="hidden">
     <!-- Dashboard: session list -->
     <section id="dashboard">
       <div id="pending-questions-banner" class="banner hidden">
@@ -118,6 +118,37 @@
           <button class="key-btn key-deny" onclick="sendKey('n')" title="No">n</button>
           <button class="key-btn" onclick="sendKey('Space')" title="Space">Space</button>
         </div>
+        <div class="keys-group">
+          <div class="cmd-dropdown-wrapper">
+            <button class="key-btn key-cmd" onclick="toggleCommandDropdown()" title="Send command (no [fleet] prefix)">/ Cmd</button>
+            <div id="cmd-dropdown" class="cmd-dropdown hidden">
+              <div class="cmd-dropdown-item" onclick="sendCommand('/help')">
+                <span class="cmd-name">/help</span><span class="cmd-desc">Show help</span>
+              </div>
+              <div class="cmd-dropdown-item" onclick="sendCommand('/status')">
+                <span class="cmd-name">/status</span><span class="cmd-desc">Check status</span>
+              </div>
+              <div class="cmd-dropdown-item" onclick="sendCommand('/review')">
+                <span class="cmd-name">/review</span><span class="cmd-desc">Review changes</span>
+              </div>
+              <div class="cmd-dropdown-item" onclick="sendCommand('/commit')">
+                <span class="cmd-name">/commit</span><span class="cmd-desc">Commit staged</span>
+              </div>
+              <div class="cmd-dropdown-item" onclick="sendCommand('/clear')">
+                <span class="cmd-name">/clear</span><span class="cmd-desc">Clear context</span>
+              </div>
+              <div class="cmd-dropdown-item" onclick="sendCommand('/resume')">
+                <span class="cmd-name">/resume</span><span class="cmd-desc">Resume previous session</span>
+              </div>
+              <div class="cmd-dropdown-divider"></div>
+              <div class="cmd-dropdown-custom">
+                <input type="text" id="cmd-custom-input" placeholder="Custom message..." autocomplete="off"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();sendCustomCommand()}">
+                <button onclick="sendCustomCommand()" class="btn-sm btn-accent">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="keys-group keys-right">
           <label class="toggle-label"><input type="checkbox" id="keyboard-capture-toggle" onchange="toggleKeyboardCapture()"> Keyboard</label>
         </div>
@@ -146,8 +177,11 @@
       <p>Start a new Claude Code session.</p>
       <form id="new-session-form">
         <label class="form-label" for="ns-project">Project path</label>
-        <input type="text" id="ns-project" placeholder="/home/user/projects/myapp" required
-               oninput="autoFillSessionName()">
+        <div class="path-autocomplete-wrapper">
+          <input type="text" id="ns-project" placeholder="/home/user/projects/myapp" required
+                 oninput="autoFillSessionName(); onPathInput()" autocomplete="off">
+          <div id="path-autocomplete" class="path-autocomplete hidden"></div>
+        </div>
         <label class="form-label" for="ns-name">Session name</label>
         <input type="text" id="ns-name" placeholder="(auto from path)">
         <div id="ns-error" class="login-error hidden"></div>

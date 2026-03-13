@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import uvicorn
-from fastapi import FastAPI, Header, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from pathlib import Path
 
 from fleet_manager.config import load_config, get_config
@@ -25,6 +29,7 @@ from fleet_manager.notifications import init_notifications, notify_stale
 from fleet_manager.api.sessions import router as sessions_router
 from fleet_manager.api.questions import router as questions_router
 from fleet_manager.api.messages import router as messages_router
+from fleet_manager.api.filesystem import router as filesystem_router
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +47,9 @@ async def _queue_delivery_loop(interval: int, prefix: str) -> None:
                     continue
                 queued = get_queued_messages(session["session_id"])
                 for msg in queued:
-                    prefixed = f"{prefix} {msg['content']}"
+                    content = msg["content"] if msg.get("raw") else f"{prefix} {msg['content']}"
                     try:
-                        await inject_input(session["tmux_session"], session["tmux_pane"], prefixed)
+                        await inject_input(session["tmux_session"], session["tmux_pane"], content)
                         mark_message_delivered(msg["message_id"])
                         logger.info("Delivered queued message %s to %s", msg["message_id"], session["session_id"])
                     except RuntimeError as e:
@@ -152,6 +157,7 @@ app.add_middleware(AuthMiddleware)
 app.include_router(sessions_router)
 app.include_router(questions_router)
 app.include_router(messages_router)
+app.include_router(filesystem_router)
 
 # Mount MCP SSE server
 app.mount("/mcp", mcp.sse_app())
@@ -202,6 +208,16 @@ async def websocket_endpoint(ws: WebSocket):
         ws_manager.disconnect(ws)
 
 
+# No-cache middleware for static web assets (edit HTML/CSS/JS without restarting)
+class _NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.endswith(('.html', '.css', '.js')) or request.url.path == '/':
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return response
+
+app.add_middleware(_NoCacheStaticMiddleware)
+
 # Serve static web UI
 web_dir = Path(__file__).parent.parent / "web"
 if web_dir.exists():
@@ -227,9 +243,18 @@ class _TokenRedactFilter(logging.Filter):
         return True
 
 
+def _handle_sighup(*_args) -> None:
+    """Re-exec the server process on SIGHUP for graceful restart."""
+    logger.info("SIGHUP received — restarting server")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
     logging.getLogger("uvicorn.access").addFilter(_TokenRedactFilter())
+
+    signal.signal(signal.SIGHUP, _handle_sighup)
+
     cfg = load_config()
     logger.info("Starting Fleet Manager on %s:%d", cfg.server.host, cfg.server.port)
     uvicorn.run(app, host=cfg.server.host, port=cfg.server.port)

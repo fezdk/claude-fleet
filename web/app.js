@@ -619,6 +619,57 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Command Dropdown (raw / no-prefix messages) ──
+
+function toggleCommandDropdown() {
+  const dd = document.getElementById('cmd-dropdown');
+  dd.classList.toggle('hidden');
+  if (!dd.classList.contains('hidden')) {
+    document.getElementById('cmd-custom-input').focus();
+  }
+}
+
+function closeCommandDropdown() {
+  document.getElementById('cmd-dropdown').classList.add('hidden');
+}
+
+async function sendCommand(cmd) {
+  closeCommandDropdown();
+  if (!focusSessionId || !cmd) return;
+  try {
+    const result = await api(`/api/sessions/${focusSessionId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ content: cmd, urgent: false, raw: true, from_client: 'web' }),
+    });
+    const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
+    const el = document.getElementById('focus-msg-status');
+    el.textContent = `Sent "${cmd}" (${method})`;
+    el.className = 'msg-status success';
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3000);
+  } catch (e) {
+    const el = document.getElementById('focus-msg-status');
+    el.textContent = `Failed: ${e.message}`;
+    el.className = 'msg-status error';
+    el.classList.remove('hidden');
+  }
+}
+
+function sendCustomCommand() {
+  const input = document.getElementById('cmd-custom-input');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+  sendCommand(cmd);
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('.cmd-dropdown-wrapper')) {
+    closeCommandDropdown();
+  }
+});
+
 document.getElementById('focus-message-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = document.getElementById('focus-msg-input');
@@ -713,11 +764,13 @@ function showNewSessionModal() {
   document.getElementById('ns-project').value = '';
   document.getElementById('ns-name').value = '';
   document.getElementById('ns-error').classList.add('hidden');
+  hidePathAutocomplete();
   document.getElementById('ns-project').focus();
 }
 
 function hideNewSessionModal() {
   document.getElementById('new-session-overlay').classList.add('hidden');
+  hidePathAutocomplete();
 }
 
 function autoFillSessionName() {
@@ -732,6 +785,118 @@ function autoFillSessionName() {
 // Track if user manually edited the name field
 document.getElementById('ns-name').addEventListener('input', function() {
   this.dataset.manual = this.value.trim() ? '1' : '';
+});
+
+// ── Path Autocomplete ──
+
+let pathCompleteTimer = null;
+let pathActiveIndex = -1;
+
+function onPathInput() {
+  clearTimeout(pathCompleteTimer);
+  pathCompleteTimer = setTimeout(fetchPathCompletions, 200);
+}
+
+async function fetchPathCompletions() {
+  const input = document.getElementById('ns-project');
+  const path = input.value;
+  if (!path || !path.startsWith('/')) {
+    hidePathAutocomplete();
+    return;
+  }
+
+  try {
+    const data = await api(`/api/filesystem/complete?path=${encodeURIComponent(path)}`);
+    const entries = data.entries || [];
+    if (entries.length === 0) {
+      hidePathAutocomplete();
+      return;
+    }
+    showPathAutocomplete(entries);
+  } catch {
+    hidePathAutocomplete();
+  }
+}
+
+function showPathAutocomplete(entries) {
+  const dropdown = document.getElementById('path-autocomplete');
+  pathActiveIndex = -1;
+  dropdown.innerHTML = entries.map((e, i) => `
+    <div class="path-autocomplete-item" data-path="${esc(e.path)}" data-index="${i}"
+         onmousedown="selectPathEntry('${esc(e.path).replace(/'/g, "\\'")}')">
+      <span class="dir-icon">/</span>${esc(e.name)}
+    </div>
+  `).join('');
+  dropdown.classList.remove('hidden');
+}
+
+function hidePathAutocomplete() {
+  const dropdown = document.getElementById('path-autocomplete');
+  dropdown.classList.add('hidden');
+  dropdown.innerHTML = '';
+  pathActiveIndex = -1;
+}
+
+function selectPathEntry(path) {
+  const input = document.getElementById('ns-project');
+  input.value = path + '/';
+  hidePathAutocomplete();
+  autoFillSessionName();
+  input.focus();
+  // Trigger another completion for the next level
+  clearTimeout(pathCompleteTimer);
+  pathCompleteTimer = setTimeout(fetchPathCompletions, 100);
+}
+
+// Keyboard navigation for autocomplete
+document.getElementById('ns-project').addEventListener('keydown', (e) => {
+  const dropdown = document.getElementById('path-autocomplete');
+  if (dropdown.classList.contains('hidden')) {
+    // Tab triggers completion when dropdown is closed
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      fetchPathCompletions();
+    }
+    return;
+  }
+
+  const items = dropdown.querySelectorAll('.path-autocomplete-item');
+  if (items.length === 0) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    pathActiveIndex = Math.min(pathActiveIndex + 1, items.length - 1);
+    updateActiveItem(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    pathActiveIndex = Math.max(pathActiveIndex - 1, 0);
+    updateActiveItem(items);
+  } else if (e.key === 'Enter' && pathActiveIndex >= 0) {
+    e.preventDefault();
+    selectPathEntry(items[pathActiveIndex].dataset.path);
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    // Tab selects the first (or currently highlighted) entry
+    const idx = pathActiveIndex >= 0 ? pathActiveIndex : 0;
+    selectPathEntry(items[idx].dataset.path);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    hidePathAutocomplete();
+  }
+});
+
+function updateActiveItem(items) {
+  items.forEach((el, i) => {
+    el.classList.toggle('active', i === pathActiveIndex);
+    if (i === pathActiveIndex) el.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+// Hide autocomplete when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('.path-autocomplete-wrapper')) {
+    hidePathAutocomplete();
+  }
 });
 
 document.getElementById('new-session-form').addEventListener('submit', async (e) => {
@@ -781,6 +946,8 @@ function logout() {
   localStorage.removeItem('fleet_auth_token');
   if (ws) ws.close();
   document.getElementById('logout-btn').classList.add('hidden');
+  document.getElementById('app-header').classList.add('hidden');
+  document.getElementById('app-main').classList.add('hidden');
   showLogin();
 }
 
@@ -834,6 +1001,8 @@ async function checkAuth() {
 }
 
 function startApp() {
+  document.getElementById('app-header').classList.remove('hidden');
+  document.getElementById('app-main').classList.remove('hidden');
   if (authRequired) {
     document.getElementById('logout-btn').classList.remove('hidden');
   }
