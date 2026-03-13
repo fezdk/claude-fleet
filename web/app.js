@@ -540,6 +540,13 @@ async function forkFocusSession() {
   }
 }
 
+function openDetailFromFocus() {
+  if (!focusSessionId) return;
+  const sid = focusSessionId;
+  closeFocus();
+  showSession(sid);
+}
+
 async function deleteFocusSession() {
   if (!focusSessionId) return;
   if (!confirm(`Stop and remove session "${focusSessionId}"? This will kill the tmux session.`)) return;
@@ -619,6 +626,58 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Detail View Keys + Commands ──
+
+async function sendDetailKey(key) {
+  if (!currentSessionId) return;
+  try {
+    await api(`/api/sessions/${currentSessionId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ keys: [key] }),
+    });
+    const terminal = document.getElementById('terminal-output');
+    terminal.style.outline = '1px solid var(--accent)';
+    setTimeout(() => { terminal.style.outline = ''; }, 150);
+  } catch (e) {
+    console.error('Key send error:', e);
+  }
+}
+
+function toggleDetailCommandDropdown() {
+  const dd = document.getElementById('detail-cmd-dropdown');
+  dd.classList.toggle('hidden');
+  if (!dd.classList.contains('hidden')) {
+    document.getElementById('detail-cmd-custom-input').focus();
+  }
+}
+
+function closeDetailCommandDropdown() {
+  document.getElementById('detail-cmd-dropdown').classList.add('hidden');
+}
+
+async function sendDetailCommand(cmd) {
+  closeDetailCommandDropdown();
+  if (!currentSessionId || !cmd) return;
+  try {
+    const result = await api(`/api/sessions/${currentSessionId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ content: cmd, urgent: false, raw: true, from_client: 'web' }),
+    });
+    const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
+    showMessageStatus(`Sent "${cmd}" (${method})`, 'success');
+  } catch (e) {
+    showMessageStatus(`Failed: ${e.message}`, 'error');
+  }
+}
+
+function sendDetailCustomCommand() {
+  const input = document.getElementById('detail-cmd-custom-input');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+  sendDetailCommand(cmd);
+}
+
 // ── Command Dropdown (raw / no-prefix messages) ──
 
 function toggleCommandDropdown() {
@@ -663,10 +722,11 @@ function sendCustomCommand() {
   sendCommand(cmd);
 }
 
-// Close dropdown when clicking outside
+// Close dropdowns when clicking outside
 document.addEventListener('mousedown', (e) => {
   if (!e.target.closest('.cmd-dropdown-wrapper')) {
     closeCommandDropdown();
+    closeDetailCommandDropdown();
   }
 });
 

@@ -186,7 +186,7 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   background: #1e1e2e;
   color: #cdd6f4;
   padding: 0.75rem;
-  border-radius: 6px;
+  border-radius: 6px 6px 0 0;
   font-size: 0.78rem;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   max-height: 500px;
@@ -194,6 +194,10 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   white-space: pre-wrap;
   word-break: break-all;
   line-height: 1.4;
+}
+#detail-keys-bar {
+  border-radius: 0 0 6px 6px;
+  border-top: none;
 }
 
 /* Message form */
@@ -404,9 +408,8 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  width: 100%;
-  max-width: 900px;
-  height: 85vh;
+  width: 70%;
+  height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);

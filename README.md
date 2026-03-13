@@ -83,18 +83,35 @@ autossh -M 0 -f -N -L 7700:127.0.0.1:7700 your-server
 
 Then access the dashboard at `http://127.0.0.1:7700` on your local machine.
 
-## Registering the MCP Server (one-time)
+#### Sharing on the local network
 
-Claude Code needs to know about the fleet manager's MCP server. Register it once:
+By default the SSH tunnel only listens on `127.0.0.1`, so only the machine running the tunnel can connect. To make the dashboard available to other devices on the same network (phone, tablet, another laptop), bind the tunnel to all interfaces:
+
+```bash
+# Listen on 0.0.0.0 so any device on the LAN can reach port 7700
+ssh -f -N -L 0.0.0.0:7700:127.0.0.1:7700 your-server
+
+# Auto-reconnecting version
+autossh -M 0 -f -N -L 0.0.0.0:7700:127.0.0.1:7700 your-server
+```
+
+Then access the dashboard from any device on the network at `http://<your-local-ip>:7700`. Find your local IP with:
+
+```bash
+hostname -I | awk '{print $1}'   # Linux
+ipconfig getifaddr en0            # macOS
+```
+
+> **Note:** Your SSH server must allow this — ensure `GatewayPorts clientspecified` (or `yes`) is set in `/etc/ssh/sshd_config` on the machine running the tunnel. Also make sure `FLEET_AUTH_TOKEN` is set, since the dashboard will be exposed to the local network.
+
+## MCP Server Registration
+
+Sessions started via `fleet start` or the web UI automatically register the MCP server with Claude Code — no manual setup needed.
+
+If you want to manually connect a Claude Code session to the fleet (outside of `fleet start`), register it yourself:
 
 ```bash
 claude mcp add --transport sse --scope user fleet-manager http://127.0.0.1:7700/mcp/sse
-```
-
-This registers it globally for all projects. To register for a specific project only:
-```bash
-cd /path/to/project
-claude mcp add --transport sse --scope project fleet-manager http://127.0.0.1:7700/mcp/sse
 ```
 
 > **Note:** The fleet manager server must be running when Claude Code starts a session,
@@ -270,6 +287,7 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 | POST | `/api/sessions/:id/fork` | Fork session (branch conversation into new session) |
 | DELETE | `/api/sessions/:id` | Stop + remove session (kills tmux) |
 | POST | `/api/sessions/:id/message` | Send instructions to session (`raw: true` to skip prefix) |
+| POST | `/api/sessions/:id/keys` | Send raw keystrokes to the terminal (Enter, Escape, arrow keys, etc.) |
 | GET | `/api/filesystem/complete?path=...` | Directory completion for path input |
 | GET | `/api/questions?pending=true` | Pending questions |
 | GET | `/api/questions/:session_id` | Questions for a session |

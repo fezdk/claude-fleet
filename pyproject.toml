@@ -3,7 +3,11 @@ name = "claude-fleet-manager"
 version = "0.1.0"
 description = "Manage multiple Claude Code terminal sessions from remote clients"
 license = "MIT"
+readme = "README.md"
 requires-python = ">=3.11"
+
+[project.urls]
+Repository = "https://github.com/fezdk/claude-fleet"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
