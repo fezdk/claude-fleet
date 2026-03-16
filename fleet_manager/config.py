@@ -30,6 +30,8 @@ class SessionsConfig:
 class TmuxConfig:
     session_prefix: str = "fleet-"
     input_inject_delay_ms: int = 150
+    default_width: int = 220
+    default_height: int = 50
 
 
 @dataclass

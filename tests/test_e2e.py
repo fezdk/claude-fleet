@@ -42,7 +42,7 @@ def test_report_status_auto_registers():
     # The MCP tool calls update_status which auto-registers.
     # We simulate this via a direct DB-level test by posting a message first
     # which triggers auto-registration check.
-    # Actually, let's just use the MCP tool via the SSE endpoint... but that's complex.
+    # Actually, let's just use the MCP tool via the HTTP endpoint... but that's complex.
     # Instead, let's test the REST API flow that would follow MCP registration.
 
     # We'll simulate by calling the internal endpoint behavior:

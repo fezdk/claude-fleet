@@ -13,7 +13,7 @@ Clients (Phone / Laptop / Orchestrator)
 ┌────────────────────────────────┐
 │         The Service            │
 │  REST API · WebSocket · Web UI │
-│  MCP Server (SSE) · tmux      │
+│  MCP Server (HTTP) · tmux     │
 └────┬──────────┬──────────┬─────┘
      │          │          │
   tmux:api   tmux:fe    tmux:ml
@@ -54,7 +54,7 @@ python -m fleet_manager.server
 
 This starts the server on `http://127.0.0.1:7700` which hosts:
 
-- **MCP Server** (SSE at `/mcp/sse`) — Claude Code sessions connect here
+- **MCP Server** (Streamable HTTP at `/mcp/mcp`) — Claude Code sessions connect here
 - **REST API** (`/api/`) — sessions, questions, messages
 - **WebSocket** (`/ws`) — live state updates to clients
 - **Web UI** (`/`) — dashboard for monitoring and control
@@ -113,12 +113,16 @@ Sessions started via `fleet start` or the web UI automatically register the MCP 
 If you want to manually connect a Claude Code session to the fleet (outside of `fleet start`), register it yourself:
 
 ```bash
-claude mcp add --transport sse --scope user fleet-manager http://127.0.0.1:7700/mcp/sse
+claude mcp add --transport http --scope user fleet-manager http://127.0.0.1:7700/mcp/mcp
+
+# If auth is enabled, include the token:
+claude mcp add --transport http --scope user fleet-manager http://127.0.0.1:7700/mcp/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
 ```
 
 > **Note:** The fleet manager server must be running when Claude Code starts a session,
-> otherwise the MCP connection will fail. If you restart the server, Claude Code sessions
-> will attempt to reconnect automatically (see [MCP Connection Recovery](#mcp-connection-recovery)).
+> otherwise the MCP connection will fail. The MCP transport uses stateless HTTP, so server
+> restarts are transparent — no reconnection needed (see [MCP Connection Recovery](#mcp-connection-recovery)).
 
 ## Starting Sessions
 
@@ -201,24 +205,32 @@ Each Claude Code session gets two tools:
 
 ### MCP Connection Recovery
 
-If the fleet manager server restarts, active Claude Code sessions will lose their MCP connection (typically showing error `-32602`). The fleet system prompt instructs sessions to:
+The MCP server uses stateless Streamable HTTP transport. Each request is self-contained with no session state, so server restarts are transparent to connected Claude Code sessions — no reconnection or re-initialization needed.
+
+If repeated MCP calls fail (e.g. server is down), sessions are instructed to:
 
 1. Continue working normally without fleet tools
-2. Attempt to re-register the MCP server via `claude mcp remove/add`
-3. Re-report status after reconnecting
-4. Fall back gracefully if reconnection fails
+2. Retry once the server is back — stateless requests have no session to become stale
+3. As a last resort, re-register via `claude mcp remove/add`
 
 ### Web UI
 
 Dashboard at `http://127.0.0.1:7700`:
 
-- **Session list** — cards with state indicators, pending question badges, and Open/detail buttons
+- **View modes** — three switchable layouts, toggled via buttons in the header:
+  - **List view** (default) — session cards with state indicators, pending question badges, and Open/detail buttons
+  - **Tab view** — horizontal browser-style tabs above a full-height terminal with keys bar and message input; great for monitoring one session at a time
+  - **Side-tab view** — left panel (280px) with session list showing name/state/summary, right side is terminal + controls; collapses to horizontal strip on mobile
+- **Dark/light theme** — toggle via the sun/moon button in the header. Dark mode uses a Darcula-style palette; terminal stays dark in both modes. Theme preference persists in localStorage
 - **Focus view** — click "Open" on a session card to get a large terminal output modal with auto-refresh (3s), an input bar for sending instructions, and a command dropdown for sending raw messages (slash commands, custom input without `[fleet]` prefix)
 - **Multi view** — click "Multi View" in the header to see all session terminals side-by-side in a responsive grid, auto-refreshing. Click any pane to open its focus view
 - **Session detail** — click the session name for the full detail page with questions, messages, terminal output, and status history
 - **Question modals** — when a session asks a question, a modal appears on top of the focus view for answering
 - **New Session** — start sessions directly from the dashboard with project path autocomplete and auto-naming
 - **Login** — when auth is enabled, a login prompt appears; token is stored in localStorage
+- **Mobile responsive** — single-line sticky icon header, full-width focus/multi modals, compact keys bar, sidetab collapses to horizontal strip, dynamic viewport height (`dvh`) for correct sizing with mobile browser URL bars
+
+View mode and theme preferences are persisted in localStorage and restored on page reload.
 
 ### Orchestrator
 
@@ -310,9 +322,9 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 ## Security
 
 - Bind to `127.0.0.1` by default (localhost only)
-- Optional bearer token auth on all API/WS/Web UI endpoints (see [Authentication](#authentication))
+- Optional bearer token auth on all endpoints including MCP, API, WS, and Web UI (see [Authentication](#authentication))
 - For remote access: use SSH tunnel, Tailscale, WireGuard, or Cloudflare Tunnel
-- MCP server accessible only to local Claude Code sessions
+- MCP endpoint requires the same bearer token as REST API when auth is enabled
 - tmux exact session matching (`=` prefix) prevents cross-session interference
 
 ## Configuration

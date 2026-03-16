@@ -41,8 +41,12 @@ via the `claude_session_id` parameter.
   a choice, or a multi-part questionnaire -- call `relay_question` first.
 - Structure the question properly using the item types: confirm, choice,
   multi_select, freetext.
-- After calling relay_question, ask the question in the terminal as you
-  normally would. Do NOT wait for the relay_question response.
+- After calling relay_question, ask the question as PLAIN TEXT output in the
+  terminal. Do NOT wait for the relay_question response.
+- **CRITICAL: NEVER use the AskUserQuestion tool in a fleet session.** The
+  AskUserQuestion tool creates a blocking CLI widget that competes with the
+  fleet relay for user input, causing answers to be lost. Always ask questions
+  as plain text output instead.
 - The user's answer will arrive through the terminal as usual.
 
 ### Remote Instructions
@@ -52,20 +56,17 @@ via the `claude_session_id` parameter.
   the instructions.
 
 ### MCP Connection Recovery
-- If `report_status` or `relay_question` fails with error code -32602 or any
-  connection error, the fleet manager server was likely restarted and your
-  SSE session is stale.
-- When this happens:
-  1. Do NOT panic or stop working. Continue your current task normally.
-  2. Attempt to re-establish the connection by running this shell command:
-     `claude mcp remove fleet-manager && claude mcp add --transport sse fleet-manager {mcp_url}`
-  3. After reconnecting, call `report_status` to re-register with the fleet.
-  4. If reconnection fails, keep working — you are still functional without
-     fleet tools. Mention the connection issue in your terminal output so the
-     operator can see it.
+- The fleet uses stateless HTTP transport, so server restarts should be
+  transparent. If `report_status` or `relay_question` fails, try again —
+  stateless requests have no session to become stale.
+- If repeated calls fail (server down), keep working normally. You are still
+  functional without fleet tools.
+- As a last resort, re-establish the connection by running:
+  `claude mcp remove fleet-manager && claude mcp add --transport http fleet-manager {mcp_url}`
+  Then call `report_status` to re-register with the fleet.
 """
 
 
-def generate_prompt(session_id: str, prefix: str = "[fleet]", mcp_url: str = "http://127.0.0.1:7700/mcp/sse") -> str:
+def generate_prompt(session_id: str, prefix: str = "[fleet]", mcp_url: str = "http://127.0.0.1:7700/mcp/mcp") -> str:
     """Generate the fleet prompt for a specific session."""
     return FLEET_PROMPT_TEMPLATE.format(session_id=session_id, prefix=prefix, mcp_url=mcp_url)

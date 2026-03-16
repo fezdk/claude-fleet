@@ -32,16 +32,59 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def clean_output(text: str) -> str:
+    """Strip Claude Code TUI chrome from captured terminal output.
+
+    Removes the input field, separator lines, hints bar, and status line
+    that Claude Code renders at the bottom of the terminal. Also collapses
+    duplicate blank lines and strips trailing whitespace-only lines.
+    """
+    lines = text.split("\n")
+
+    # Strip Claude Code's bottom chrome by walking backwards from the end.
+    # The bottom of a Claude Code pane typically looks like:
+    #   ─────────────────────── (separator)
+    #   ❯ ▮                    (input prompt)
+    #   ─────────────────────── (separator)
+    #   ⏵⏵ accept edits on ... (hints/mode bar)
+    #   (blank padding)
+    while lines:
+        plain = strip_ansi(lines[-1]).strip()
+        if not plain:
+            lines.pop()
+            continue
+        # Hints/mode bar: contains ⏵ with shift+tab or permission mode keywords
+        if "shift+tab" in plain or "esc to interrupt" in plain or "esc to cancel" in plain:
+            lines.pop()
+            continue
+        # Separator: line is mostly ─ (U+2500) or ━ (U+2501)
+        stripped_chars = plain.replace(" ", "")
+        if stripped_chars and all(c in "─━" for c in stripped_chars):
+            lines.pop()
+            continue
+        # Input prompt: starts with ❯ or is just a cursor block
+        if plain.startswith("❯") or plain == "▮" or (len(stripped_chars) <= 3 and "❯" in plain):
+            lines.pop()
+            continue
+        break
+
+    # Strip trailing blank lines
+    while lines and not strip_ansi(lines[-1]).strip():
+        lines.pop()
+
+    return "\n".join(lines)
+
+
 async def capture_output(tmux_session: str, pane: str = "0", lines: int = 50) -> str:
-    """Capture the last N lines of a tmux pane."""
+    """Capture the last N lines of a tmux pane, with TUI chrome stripped."""
     _ensure_tmux()
     target = f"={tmux_session}:{pane}"
     stdout, stderr, rc = await _run([
-        "tmux", "capture-pane", "-t", target, "-p", "-S", f"-{lines}",
+        "tmux", "capture-pane", "-t", target, "-p", "-e", "-S", f"-{lines}",
     ])
     if rc != 0:
         raise RuntimeError(f"tmux capture-pane failed: {stderr}")
-    return strip_ansi(stdout)
+    return clean_output(stdout)
 
 
 async def inject_input(tmux_session: str, pane: str = "0", text: str = "", submit: bool = True) -> None:

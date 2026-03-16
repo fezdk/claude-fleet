@@ -1,4 +1,4 @@
-"""MCP server exposing report_status and relay_question tools over SSE."""
+"""MCP server exposing report_status and relay_question tools over Streamable HTTP."""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ mcp = FastMCP(
         "Fleet manager MCP server. Use report_status to report state changes "
         "and relay_question to mirror questions for remote clients."
     ),
+    stateless_http=True,
+    json_response=True,
 )
 
 

@@ -9,6 +9,11 @@ let authRequired = false;
 let focusSessionId = null;
 let focusRefreshTimer = null;
 
+// View mode state
+let viewMode = localStorage.getItem('fleet_view_mode') || 'list';
+let activeTabSessionId = null;
+let viewRefreshTimer = null;
+
 // ── WebSocket ──
 
 function getAuthToken() {
@@ -22,13 +27,15 @@ function connectWS() {
   ws = new WebSocket(`${proto}//${location.host}/ws${params}`);
 
   ws.onopen = () => {
-    document.getElementById('ws-status').textContent = 'live';
-    document.getElementById('ws-status').className = 'badge badge-connected';
+    const el = document.getElementById('ws-status');
+    el.innerHTML = '<span class="ws-dot">●</span><span class="btn-label"> live</span>';
+    el.className = 'badge badge-connected';
   };
 
   ws.onclose = () => {
-    document.getElementById('ws-status').textContent = 'disconnected';
-    document.getElementById('ws-status').className = 'badge badge-disconnected';
+    const el = document.getElementById('ws-status');
+    el.innerHTML = '<span class="ws-dot">●</span><span class="btn-label"> disconnected</span>';
+    el.className = 'badge badge-disconnected';
     setTimeout(connectWS, 3000);
   };
 
@@ -46,6 +53,11 @@ function handleEvent(event, data) {
     }
     if (focusSessionId && data.session_id === focusSessionId) {
       updateFocusHeader(data);
+    }
+    // Update active tab/sidetab terminal on session update
+    if (activeTabSessionId && data.session_id === activeTabSessionId) {
+      if (viewMode === 'tab') loadTerminalInto(activeTabSessionId, 'tab-terminal');
+      else if (viewMode === 'sidetab') loadTerminalInto(activeTabSessionId, 'sidetab-terminal');
     }
   } else if (event === 'question:new') {
     refreshDashboard();
@@ -98,6 +110,71 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+// ── ANSI to HTML ──
+
+const ANSI_COLORS = [
+  '#1e1e2e','#cf222e','#1a7f37','#9a6700','#0969da','#8250df','#1b7c83','#cdd6f4',
+  '#6e7681','#ff8182','#4ac26b','#d4a72c','#58a6ff','#bc8cff','#56d4dd','#ffffff',
+];
+
+function ansiToHtml(text) {
+  // HTML-escape first to prevent XSS
+  const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let result = '';
+  let open = false;
+  let i = 0;
+
+  while (i < escaped.length) {
+    // Match ESC[ ... m sequences (SGR)
+    if (escaped[i] === '\x1b' && escaped[i+1] === '[') {
+      const end = escaped.indexOf('m', i+2);
+      if (end === -1) { i++; continue; }
+      const codes = escaped.slice(i+2, end).split(';').map(Number);
+      i = end + 1;
+
+      const styles = [];
+      for (let c = 0; c < codes.length; c++) {
+        const code = codes[c];
+        if (code === 0) { if (open) { result += '</span>'; open = false; } continue; }
+        if (code === 1) styles.push('font-weight:bold');
+        else if (code === 2) styles.push('opacity:0.7');
+        else if (code === 3) styles.push('font-style:italic');
+        else if (code === 4) styles.push('text-decoration:underline');
+        else if (code >= 30 && code <= 37) styles.push(`color:${ANSI_COLORS[code-30]}`);
+        else if (code >= 40 && code <= 47) styles.push(`background:${ANSI_COLORS[code-40]}`);
+        else if (code >= 90 && code <= 97) styles.push(`color:${ANSI_COLORS[code-82]}`);
+        else if (code >= 100 && code <= 107) styles.push(`background:${ANSI_COLORS[code-92]}`);
+        else if (code === 38 && codes[c+1] === 5) { styles.push(`color:${ansi256(codes[c+2]||0)}`); c+=2; }
+        else if (code === 48 && codes[c+1] === 5) { styles.push(`background:${ansi256(codes[c+2]||0)}`); c+=2; }
+        else if (code === 38 && codes[c+1] === 2) { styles.push(`color:rgb(${codes[c+2]||0},${codes[c+3]||0},${codes[c+4]||0})`); c+=4; }
+        else if (code === 48 && codes[c+1] === 2) { styles.push(`background:rgb(${codes[c+2]||0},${codes[c+3]||0},${codes[c+4]||0})`); c+=4; }
+      }
+      if (styles.length) {
+        if (open) result += '</span>';
+        result += `<span style="${styles.join(';')}">`;
+        open = true;
+      }
+      continue;
+    }
+    // Strip other escape sequences (OSC, charset, etc)
+    if (escaped[i] === '\x1b') {
+      if (escaped[i+1] === ']') { const st = escaped.indexOf('\x07', i); i = st === -1 ? i+1 : st+1; continue; }
+      i += 2; continue;
+    }
+    result += escaped[i++];
+  }
+  if (open) result += '</span>';
+  return result;
+}
+
+function ansi256(n) {
+  if (n < 16) return ANSI_COLORS[n] || '#cdd6f4';
+  if (n >= 232) { const g = 8 + (n - 232) * 10; return `rgb(${g},${g},${g})`; }
+  n -= 16;
+  const r = Math.floor(n/36) * 51, g = Math.floor((n%36)/6) * 51, b = (n%6) * 51;
+  return `rgb(${r},${g},${b})`;
+}
+
 // ── Dashboard ──
 
 async function refreshDashboard() {
@@ -108,7 +185,7 @@ async function refreshDashboard() {
     ]);
 
     // Update session count
-    document.getElementById('session-count').textContent = `${sessions.length} session${sessions.length !== 1 ? 's' : ''}`;
+    document.getElementById('session-count').innerHTML = `<span class="count-num">${sessions.length}</span><span class="btn-label"> session${sessions.length !== 1 ? 's' : ''}</span>`;
 
     // Build pending questions map
     pendingQuestionsMap = {};
@@ -125,42 +202,127 @@ async function refreshDashboard() {
       banner.classList.add('hidden');
     }
 
-    // Render sessions
-    const container = document.getElementById('sessions-list');
-    if (sessions.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <h2>No sessions yet</h2>
-          <p>Start a fleet session with:</p>
-          <p><code>fleet start --name my-session --project /path/to/project</code></p>
-        </div>
-      `;
-      return;
+    // Dispatch to active renderer
+    switch (viewMode) {
+      case 'list':    renderListView(sessions); break;
+      case 'tab':     renderTabView(sessions); break;
+      case 'sidetab': renderSideTabView(sessions); break;
     }
-
-    container.innerHTML = sessions.map(s => {
-      const qCount = pendingQuestionsMap[s.session_id] || 0;
-      const hasQ = qCount > 0;
-      return `
-        <div class="session-card${hasQ ? ' has-question' : ''}">
-          ${hasQ ? `<span class="question-badge">${qCount} ?</span>` : ''}
-          <div class="row">
-            <span class="name" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.session_id)}</span>
-            <div style="display:flex;gap:0.4rem;align-items:center">
-              <span class="state state-${s.state}">${s.state}</span>
-              <button class="btn-sm btn-focus" onclick="event.stopPropagation();openFocus('${s.session_id}')">Open</button>
-            </div>
-          </div>
-          <div class="summary" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.summary || 'No status reported')}</div>
-          <div class="meta">
-            ${s.project_root ? esc(s.project_root) + ' &middot; ' : ''}${timeAgo(s.last_seen)}
-          </div>
-        </div>
-      `;
-    }).join('');
   } catch (e) {
     console.error('Dashboard refresh error:', e);
   }
+}
+
+function renderListView(sessions) {
+  const container = document.getElementById('view-list');
+  if (sessions.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <h2>No sessions yet</h2>
+        <p>Start a fleet session with:</p>
+        <p><code>fleet start --name my-session --project /path/to/project</code></p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sessions.map(s => {
+    const qCount = pendingQuestionsMap[s.session_id] || 0;
+    const hasQ = qCount > 0;
+    return `
+      <div class="session-card${hasQ ? ' has-question' : ''}">
+        ${hasQ ? `<span class="question-badge">${qCount} ?</span>` : ''}
+        <div class="row">
+          <span class="name" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.session_id)}</span>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            <span class="state state-${s.state}">${s.state}</span>
+            <button class="btn-sm btn-focus" onclick="event.stopPropagation();openFocus('${s.session_id}')">Open</button>
+          </div>
+        </div>
+        <div class="summary" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.summary || 'No status reported')}</div>
+        <div class="meta">
+          ${s.project_root ? esc(s.project_root) + ' &middot; ' : ''}${timeAgo(s.last_seen)}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTabView(sessions) {
+  // Auto-select active tab
+  if (!activeTabSessionId || !sessions.find(s => s.session_id === activeTabSessionId)) {
+    activeTabSessionId = sessions.length > 0 ? sessions[0].session_id : null;
+  }
+
+  // Render tab bar
+  const tabBar = document.getElementById('tab-bar');
+  tabBar.innerHTML = sessions.map(s => {
+    const qCount = pendingQuestionsMap[s.session_id] || 0;
+    const isActive = s.session_id === activeTabSessionId;
+    const stateColor = { IDLE: 'var(--blue)', WORKING: 'var(--green)', AWAITING_INPUT: 'var(--yellow)', ERROR: 'var(--red)' }[s.state] || 'var(--text-muted)';
+    return `
+      <button class="tab-btn${isActive ? ' active' : ''}" onclick="selectTab('${s.session_id}')" title="${esc(s.summary || s.state)}">
+        <span class="tab-dot" style="background:${stateColor}"></span>
+        ${esc(s.session_id)}
+        ${qCount > 0 ? `<span class="tab-question-badge">${qCount}</span>` : ''}
+      </button>
+    `;
+  }).join('');
+
+  // Populate keys bar
+  document.getElementById('tab-keys-bar').innerHTML = generateKeysBarHtml('tab');
+
+  // Load terminal for active tab
+  if (activeTabSessionId) {
+    loadTerminalInto(activeTabSessionId, 'tab-terminal');
+  } else {
+    document.getElementById('tab-terminal').innerHTML = '<span style="color:var(--text-muted);padding:1rem;display:block">No sessions — start one with + New Session</span>';
+  }
+}
+
+function selectTab(sessionId) {
+  activeTabSessionId = sessionId;
+  refreshDashboard();
+}
+
+function renderSideTabView(sessions) {
+  // Auto-select active tab
+  if (!activeTabSessionId || !sessions.find(s => s.session_id === activeTabSessionId)) {
+    activeTabSessionId = sessions.length > 0 ? sessions[0].session_id : null;
+  }
+
+  // Render side panel
+  const panel = document.getElementById('sidetab-panel');
+  panel.innerHTML = sessions.map(s => {
+    const isActive = s.session_id === activeTabSessionId;
+    const qCount = pendingQuestionsMap[s.session_id] || 0;
+    return `
+      <div class="sidetab-item${isActive ? ' active' : ''}" onclick="selectSideTab('${s.session_id}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem">
+          <span class="sidetab-name">${esc(s.session_id)}</span>
+          <span class="state state-${s.state}" style="font-size:0.65rem;padding:1px 6px">${s.state}</span>
+        </div>
+        <div class="sidetab-summary">${esc(s.summary || '')}</div>
+        <div class="sidetab-meta">${timeAgo(s.last_seen)}</div>
+        ${qCount > 0 ? `<span class="tab-question-badge" style="margin-top:4px;display:inline-block">${qCount} ?</span>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // Populate keys bar
+  document.getElementById('sidetab-keys-bar').innerHTML = generateKeysBarHtml('sidetab');
+
+  // Load terminal for active session
+  if (activeTabSessionId) {
+    loadTerminalInto(activeTabSessionId, 'sidetab-terminal');
+  } else {
+    document.getElementById('sidetab-terminal').innerHTML = '<span style="color:var(--text-muted);padding:1rem;display:block">No sessions — start one with + New Session</span>';
+  }
+}
+
+function selectSideTab(sessionId) {
+  activeTabSessionId = sessionId;
+  refreshDashboard();
 }
 
 function showDashboard() {
@@ -168,7 +330,208 @@ function showDashboard() {
   stopAutoRefresh();
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('session-detail').classList.add('hidden');
+  // Restore correct view container
+  document.querySelectorAll('.view-container').forEach(el => el.classList.add('hidden'));
+  const container = document.getElementById(`view-${viewMode}`);
+  if (container) container.classList.remove('hidden');
   refreshDashboard();
+}
+
+// ── Shared View Functions ──
+
+function generateKeysBarHtml(prefix) {
+  return `
+    <div class="keys-group">
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Up','${prefix}-terminal')" title="Up arrow">&#9650;</button>
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Down','${prefix}-terminal')" title="Down arrow">&#9660;</button>
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Left','${prefix}-terminal')" title="Left arrow">&#9664;</button>
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Right','${prefix}-terminal')" title="Right arrow">&#9654;</button>
+      <div class="cmd-dropdown-wrapper">
+        <button class="key-btn key-cmd" onclick="toggleViewCommandDropdown('${prefix}')" title="Send command">/ Cmd</button>
+        <div id="${prefix}-cmd-dropdown" class="cmd-dropdown hidden">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/help','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+            <span class="cmd-name">/help</span><span class="cmd-desc">Show help</span>
+          </div>
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/status','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+            <span class="cmd-name">/status</span><span class="cmd-desc">Check status</span>
+          </div>
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/review','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+            <span class="cmd-name">/review</span><span class="cmd-desc">Review changes</span>
+          </div>
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/commit','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+            <span class="cmd-name">/commit</span><span class="cmd-desc">Commit staged</span>
+          </div>
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/clear','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+            <span class="cmd-name">/clear</span><span class="cmd-desc">Clear context</span>
+          </div>
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/resume','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+            <span class="cmd-name">/resume</span><span class="cmd-desc">Resume previous session</span>
+          </div>
+          <div class="cmd-dropdown-divider"></div>
+          <div class="cmd-dropdown-custom">
+            <input type="text" id="${prefix}-cmd-custom-input" placeholder="Custom message..." autocomplete="off"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();sendViewCustomCommand('${prefix}')}">
+            <button onclick="sendViewCustomCommand('${prefix}')" class="btn-sm btn-accent">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="keys-group">
+      <button class="key-btn key-wide" onclick="sendKeyTo(activeTabSessionId,'Enter','${prefix}-terminal')" title="Enter">Enter &#9166;</button>
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Escape','${prefix}-terminal')" title="Escape">Esc</button>
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Tab','${prefix}-terminal')" title="Tab">Tab</button>
+    </div>
+    <div class="keys-group">
+      <button class="key-btn key-confirm" onclick="sendKeyTo(activeTabSessionId,'y','${prefix}-terminal')" title="Yes">y</button>
+      <button class="key-btn key-deny" onclick="sendKeyTo(activeTabSessionId,'n','${prefix}-terminal')" title="No">n</button>
+      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Space','${prefix}-terminal')" title="Space">Space</button>
+    </div>
+  `;
+}
+
+async function sendKeyTo(sessionId, key, terminalElId) {
+  if (!sessionId) return;
+  try {
+    await api(`/api/sessions/${sessionId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ keys: [key] }),
+    });
+    const terminal = document.getElementById(terminalElId);
+    if (terminal) {
+      terminal.style.outline = '1px solid var(--accent)';
+      setTimeout(() => { terminal.style.outline = ''; }, 150);
+    }
+  } catch (e) {
+    console.error('Key send error:', e);
+  }
+}
+
+async function sendCommandTo(sessionId, cmd, statusElId) {
+  if (!sessionId || !cmd) return;
+  try {
+    const result = await api(`/api/sessions/${sessionId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ content: cmd, urgent: false, raw: true, from_client: 'web' }),
+    });
+    const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
+    showStatusMsg(statusElId, `Sent "${cmd}" (${method})`, 'success');
+  } catch (e) {
+    showStatusMsg(statusElId, `Failed: ${e.message}`, 'error');
+  }
+}
+
+async function sendMessageTo(sessionId, content, statusElId) {
+  if (!sessionId || !content) return false;
+  try {
+    const result = await api(`/api/sessions/${sessionId}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ content, urgent: false, from_client: 'web' }),
+    });
+    const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
+    showStatusMsg(statusElId, `Sent (${method})`, 'success');
+    return true;
+  } catch (e) {
+    showStatusMsg(statusElId, `Failed: ${e.message}`, 'error');
+    return false;
+  }
+}
+
+function showStatusMsg(elId, text, type) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `msg-status ${type}`;
+  el.classList.remove('hidden');
+  if (type !== 'error') setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+async function loadTerminalInto(sessionId, preElId) {
+  const pre = document.getElementById(preElId);
+  if (!pre) return;
+  try {
+    const data = await api(`/api/sessions/${sessionId}/output`);
+    const wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
+    pre.innerHTML = ansiToHtml(data.output || '(empty)');
+    if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
+  } catch {
+    pre.innerHTML = '(could not capture terminal output)';
+  }
+}
+
+function toggleViewCommandDropdown(prefix) {
+  const dd = document.getElementById(`${prefix}-cmd-dropdown`);
+  dd.classList.toggle('hidden');
+  if (!dd.classList.contains('hidden')) {
+    const input = document.getElementById(`${prefix}-cmd-custom-input`);
+    if (input) input.focus();
+  }
+}
+
+function closeViewDropdown(prefix) {
+  const dd = document.getElementById(`${prefix}-cmd-dropdown`);
+  if (dd) dd.classList.add('hidden');
+}
+
+function sendViewCustomCommand(prefix) {
+  const input = document.getElementById(`${prefix}-cmd-custom-input`);
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+  sendCommandTo(activeTabSessionId, cmd, `${prefix}-msg-status`);
+  closeViewDropdown(prefix);
+}
+
+// ── View Mode ──
+
+function setViewMode(mode) {
+  viewMode = mode;
+  localStorage.setItem('fleet_view_mode', mode);
+
+  // Update active button
+  document.querySelectorAll('.view-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+
+  // Show/hide view containers
+  document.querySelectorAll('.view-container').forEach(el => el.classList.add('hidden'));
+  const container = document.getElementById(`view-${mode}`);
+  if (container) container.classList.remove('hidden');
+
+  // Manage view refresh timer
+  if (viewRefreshTimer) {
+    clearInterval(viewRefreshTimer);
+    viewRefreshTimer = null;
+  }
+  if (mode === 'tab' || mode === 'sidetab') {
+    const termId = mode === 'tab' ? 'tab-terminal' : 'sidetab-terminal';
+    viewRefreshTimer = setInterval(() => {
+      if (activeTabSessionId) loadTerminalInto(activeTabSessionId, termId);
+    }, 3000);
+  }
+
+  // Refresh if dashboard is visible
+  if (!document.getElementById('dashboard').classList.contains('hidden')) {
+    refreshDashboard();
+  }
+}
+
+// ── Theme ──
+
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('fleet_theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('fleet_theme', 'dark');
+  }
+  updateThemeToggleIcon();
+}
+
+function updateThemeToggleIcon() {
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
 }
 
 // ── Session Detail ──
@@ -294,10 +657,10 @@ async function loadOutput(sessionId) {
   const pre = document.getElementById('terminal-output');
   try {
     const data = await api(`/api/sessions/${sessionId}/output`);
-    pre.textContent = data.output || '(empty)';
+    pre.innerHTML = ansiToHtml(data.output || '(empty)');
     pre.scrollTop = pre.scrollHeight;
   } catch {
-    pre.textContent = '(could not capture terminal output)';
+    pre.innerHTML = '(could not capture terminal output)';
   }
 }
 
@@ -443,7 +806,7 @@ async function refreshMultiView() {
       if (!pre) return;
       try {
         const data = await api(`/api/sessions/${s.session_id}/output`);
-        pre.textContent = data.output || '(empty)';
+        pre.innerHTML = ansiToHtml(data.output || '(empty)');
         // Restore scroll or scroll to bottom
         if (existingPanes[s.session_id] !== undefined) {
           pre.scrollTop = existingPanes[s.session_id];
@@ -451,7 +814,7 @@ async function refreshMultiView() {
           pre.scrollTop = pre.scrollHeight;
         }
       } catch {
-        pre.textContent = '(no output)';
+        pre.innerHTML = '(no output)';
       }
     }));
   } catch (e) {
@@ -499,10 +862,10 @@ async function loadFocusOutput() {
   try {
     const data = await api(`/api/sessions/${focusSessionId}/output`);
     const wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
-    pre.textContent = data.output || '(empty)';
+    pre.innerHTML = ansiToHtml(data.output || '(empty)');
     if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
   } catch {
-    pre.textContent = '(could not capture terminal output)';
+    pre.innerHTML = '(could not capture terminal output)';
   }
 }
 
@@ -722,11 +1085,10 @@ function sendCustomCommand() {
   sendCommand(cmd);
 }
 
-// Close dropdowns when clicking outside
+// Close all command dropdowns when clicking outside
 document.addEventListener('mousedown', (e) => {
   if (!e.target.closest('.cmd-dropdown-wrapper')) {
-    closeCommandDropdown();
-    closeDetailCommandDropdown();
+    document.querySelectorAll('.cmd-dropdown:not(.hidden)').forEach(dd => dd.classList.add('hidden'));
   }
 });
 
@@ -1066,8 +1428,10 @@ function startApp() {
   if (authRequired) {
     document.getElementById('logout-btn').classList.remove('hidden');
   }
+  // Initialize view mode from localStorage (calls refreshDashboard internally)
+  setViewMode(viewMode);
+  updateThemeToggleIcon();
   connectWS();
-  refreshDashboard();
 }
 
 // ── Init ──
@@ -1083,3 +1447,25 @@ setInterval(() => {
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
+
+// ── Tab/Sidetab form listeners ──
+
+document.getElementById('tab-message-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('tab-msg-input');
+  const content = input.value.trim();
+  if (!content || !activeTabSessionId) return;
+  if (await sendMessageTo(activeTabSessionId, content, 'tab-msg-status')) {
+    input.value = '';
+  }
+});
+
+document.getElementById('sidetab-message-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('sidetab-msg-input');
+  const content = input.value.trim();
+  if (!content || !activeTabSessionId) return;
+  if (await sendMessageTo(activeTabSessionId, content, 'sidetab-msg-status')) {
+    input.value = '';
+  }
+});

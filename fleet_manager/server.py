@@ -137,7 +137,9 @@ async def lifespan(app: FastAPI):
         _heartbeat_loop(cfg.sessions.stale_timeout_minutes)
     )
 
-    yield
+    # Start MCP session manager (sub-app lifespan doesn't auto-run when mounted)
+    async with mcp.session_manager.run():
+        yield
 
     queue_task.cancel()
     heartbeat_task.cancel()
@@ -159,8 +161,8 @@ app.include_router(questions_router)
 app.include_router(messages_router)
 app.include_router(filesystem_router)
 
-# Mount MCP SSE server
-app.mount("/mcp", mcp.sse_app())
+# Mount MCP server (stateless Streamable HTTP — resilient to server restarts)
+app.mount("/mcp", mcp.streamable_http_app())
 
 
 # Auth check endpoint (skips auth middleware)
@@ -211,8 +213,12 @@ async def websocket_endpoint(ws: WebSocket):
 # No-cache middleware for static web assets (edit HTML/CSS/JS without restarting)
 class _NoCacheStaticMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # Skip middleware wrapping for MCP endpoints (breaks streaming)
+        if path.startswith("/mcp"):
+            return await call_next(request)
         response = await call_next(request)
-        if request.url.path.endswith(('.html', '.css', '.js')) or request.url.path == '/':
+        if path.endswith(('.html', '.css', '.js')) or path == '/':
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         return response
 

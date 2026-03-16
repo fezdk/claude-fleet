@@ -8,6 +8,7 @@ import subprocess
 import time
 
 from fleet_manager import db
+from fleet_manager.config import get_config
 from fleet_manager.prompt_template import generate_prompt
 from fleet_manager.tmux_bridge import session_exists, kill_session
 
@@ -48,8 +49,12 @@ async def start_session(
     if db.get_session(name):
         raise LaunchError(f"Session '{name}' already exists")
 
-    # Create tmux session
-    result = _tmux_sync("new-session", "-d", "-s", tmux_name, "-c", project)
+    # Create tmux session with configured dimensions
+    cfg = get_config()
+    result = _tmux_sync(
+        "new-session", "-d", "-s", tmux_name, "-c", project,
+        "-x", str(cfg.tmux.default_width), "-y", str(cfg.tmux.default_height),
+    )
     if result.returncode != 0:
         raise LaunchError(f"Failed to create tmux session: {result.stderr.strip()}")
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-left", f" [{name}] ")
@@ -57,14 +62,20 @@ async def start_session(
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-style", "bg=#0969da,fg=#ffffff")
 
     # Build MCP URL and fleet system prompt
-    mcp_url = f"http://127.0.0.1:{port}/mcp/sse"
+    mcp_url = f"http://127.0.0.1:{port}/mcp/mcp"
     fleet_prompt = generate_prompt(name, mcp_url=mcp_url)
+
+    # Build MCP registration command (include auth header if token is set)
+    auth_token = cfg.server.auth_token
+    mcp_add_cmd = f'claude mcp add --transport http --scope user fleet-manager {mcp_url}'
+    if auth_token:
+        mcp_add_cmd += f' --header "Authorization: Bearer {auth_token}"'
 
     # Write a launcher script that handles MCP registration + Claude start
     script_file = f"/tmp/fleet-launch-{name}.sh"
     with open(script_file, "w") as f:
         f.write(f'#!/bin/bash\n')
-        f.write(f'claude mcp add --transport sse --scope user fleet-manager {mcp_url} 2>/dev/null\n')
+        f.write(f'{mcp_add_cmd} 2>/dev/null\n')
         f.write(f'sleep 1\n')
         f.write(f'FLEET_SESSION_ID={name} exec claude --permission-mode acceptEdits \\\n')
         f.write(f'  --append-system-prompt "$(cat <<\'FLEET_PROMPT_EOF\'\n')
@@ -121,8 +132,12 @@ async def fork_session(
     if db.get_session(new_name):
         raise LaunchError(f"Session '{new_name}' already exists")
 
-    # Create tmux session
-    result = _tmux_sync("new-session", "-d", "-s", tmux_name, "-c", project)
+    # Create tmux session with configured dimensions
+    cfg = get_config()
+    result = _tmux_sync(
+        "new-session", "-d", "-s", tmux_name, "-c", project,
+        "-x", str(cfg.tmux.default_width), "-y", str(cfg.tmux.default_height),
+    )
     if result.returncode != 0:
         raise LaunchError(f"Failed to create tmux session: {result.stderr.strip()}")
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-left", f" [{new_name}] ")
@@ -130,8 +145,14 @@ async def fork_session(
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-style", "bg=#0969da,fg=#ffffff")
 
     # Build MCP URL and fleet system prompt
-    mcp_url = f"http://127.0.0.1:{port}/mcp/sse"
+    mcp_url = f"http://127.0.0.1:{port}/mcp/mcp"
     fleet_prompt = generate_prompt(new_name, mcp_url=mcp_url)
+
+    # Build MCP registration command (include auth header if token is set)
+    auth_token = cfg.server.auth_token
+    mcp_add_cmd = f'claude mcp add --transport http --scope user fleet-manager {mcp_url}'
+    if auth_token:
+        mcp_add_cmd += f' --header "Authorization: Bearer {auth_token}"'
 
     # Build the fork notification
     fork_msg = (
@@ -149,7 +170,7 @@ async def fork_session(
     tmux_target = f"={TMUX_PREFIX}{new_name}:0"
     with open(script_file, "w") as f:
         f.write(f'#!/bin/bash\n')
-        f.write(f'claude mcp add --transport sse --scope user fleet-manager {mcp_url} 2>/dev/null\n')
+        f.write(f'{mcp_add_cmd} 2>/dev/null\n')
         f.write(f'sleep 1\n')
         # Background: poll until claude is the active process, then inject
         f.write(f'(\n')

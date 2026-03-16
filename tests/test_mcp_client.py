@@ -1,6 +1,6 @@
-"""Test MCP SSE connectivity by acting as a Claude Code MCP client.
+"""Test MCP HTTP connectivity by acting as a Claude Code MCP client.
 
-Connects to the fleet manager's MCP SSE endpoint and calls both tools.
+Connects to the fleet manager's Streamable HTTP endpoint and calls both tools.
 
 Run: Start the server first, then:
   python -m tests.test_mcp_client
@@ -15,14 +15,14 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 
 async def main():
-    server_url = "http://127.0.0.1:7700/mcp/sse"
+    server_url = "http://127.0.0.1:7700/mcp/mcp"
     print(f"Connecting to MCP server at {server_url}...")
 
-    async with sse_client(server_url) as (read_stream, write_stream):
+    async with streamablehttp_client(server_url) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize
             await session.initialize()
@@ -41,7 +41,7 @@ async def main():
                 "state": "WORKING",
                 "summary": "Running MCP connectivity test",
                 "project_root": "/tmp/mcp-test",
-                "detail": "Testing report_status tool via SSE client",
+                "detail": "Testing report_status tool via HTTP client",
             })
             print(f"  PASS: report_status called -> {result.content[0].text[:80]}")
 
@@ -64,9 +64,6 @@ async def main():
                 "context": "MCP connectivity test",
             })
             print(f"  PASS: relay_question called -> {result.content[0].text[:80]}")
-
-            # Verify session was registered via report_status
-            # (We can check via the REST API separately)
 
             print("\n  All MCP connectivity tests passed!")
 

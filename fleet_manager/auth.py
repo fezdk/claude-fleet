@@ -1,7 +1,7 @@
 """Bearer token authentication middleware.
 
 Uses a raw ASGI middleware instead of Starlette's BaseHTTPMiddleware to avoid
-breaking SSE streaming responses.
+breaking streaming responses.
 """
 
 from __future__ import annotations
@@ -15,15 +15,15 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from fleet_manager.config import get_config
 
 # Paths that skip auth
-_SKIP_PREFIXES = ("/mcp", "/style", "/app.", "/favicon")
+_SKIP_PREFIXES = ("/style", "/app.", "/favicon")
 _SKIP_EXACT = {"/", "/ws", "/api/auth/check"}
 
 
 class AuthMiddleware:
     """Raw ASGI middleware for bearer token auth.
 
-    Passes requests through without wrapping the response body, so SSE
-    and other streaming responses work correctly.
+    Passes requests through without wrapping the response body, so
+    streaming responses work correctly.
     """
 
     def __init__(self, app: ASGIApp) -> None:

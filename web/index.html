@@ -4,16 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Claude Fleet Manager</title>
+  <script>if(localStorage.getItem('fleet_theme')==='dark')document.documentElement.setAttribute('data-theme','dark')</script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header id="app-header" class="hidden">
     <h1>Fleet Manager</h1>
+    <div class="view-mode-selector">
+      <button class="view-mode-btn active" data-mode="list" title="List view" onclick="setViewMode('list')">☰</button>
+      <button class="view-mode-btn" data-mode="tab" title="Tab view" onclick="setViewMode('tab')">▭</button>
+      <button class="view-mode-btn" data-mode="sidetab" title="Side-tab view" onclick="setViewMode('sidetab')">◫</button>
+    </div>
     <div class="header-right">
-      <button id="new-session-btn" class="btn-sm btn-accent" onclick="showNewSessionModal()">+ New Session</button>
-      <button class="btn-sm" onclick="openMultiView()">Multi View</button>
-      <span id="session-count" class="badge badge-info">0 sessions</span>
-      <span id="ws-status" class="badge badge-disconnected">disconnected</span>
+      <button id="new-session-btn" class="btn-sm btn-accent" onclick="showNewSessionModal()">+<span class="btn-label"> New Session</span></button>
+      <button class="btn-sm" onclick="openMultiView()">⊞<span class="btn-label"> Multi View</span></button>
+      <span id="session-count" class="badge badge-info"><span class="count-num">0</span><span class="btn-label"> sessions</span></span>
+      <span id="ws-status" class="badge badge-disconnected"><span class="ws-dot">●</span><span class="btn-label"> disconnected</span></span>
+      <button id="theme-toggle" class="btn-sm" onclick="toggleTheme()" title="Toggle dark/light theme">🌙</button>
       <button id="logout-btn" class="btn-sm hidden" onclick="logout()">Logout</button>
     </div>
   </header>
@@ -24,7 +31,34 @@
       <div id="pending-questions-banner" class="banner hidden">
         <span id="pending-count">0</span> pending question(s) across sessions
       </div>
-      <div id="sessions-list"></div>
+      <!-- List view (default) -->
+      <div id="view-list" class="view-container"></div>
+      <!-- Tab view -->
+      <div id="view-tab" class="view-container hidden">
+        <div id="tab-bar" class="tab-bar"></div>
+        <pre id="tab-terminal" class="tab-terminal"></pre>
+        <div id="tab-keys-bar" class="keys-bar"></div>
+        <form id="tab-message-form" class="focus-input-area">
+          <input type="text" id="tab-msg-input" placeholder="Send instructions..." autocomplete="off">
+          <button type="submit" class="btn-accent">Send</button>
+        </form>
+        <div id="tab-msg-status" class="msg-status hidden"></div>
+      </div>
+      <!-- Side-tab view -->
+      <div id="view-sidetab" class="view-container hidden">
+        <div class="sidetab-layout">
+          <div id="sidetab-panel" class="sidetab-panel"></div>
+          <div class="sidetab-content">
+            <pre id="sidetab-terminal" class="sidetab-terminal"></pre>
+            <div id="sidetab-keys-bar" class="keys-bar"></div>
+            <form id="sidetab-message-form" class="focus-input-area">
+              <input type="text" id="sidetab-msg-input" placeholder="Send instructions..." autocomplete="off">
+              <button type="submit" class="btn-accent">Send</button>
+            </form>
+            <div id="sidetab-msg-status" class="msg-status hidden"></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Session detail (hidden by default) -->
