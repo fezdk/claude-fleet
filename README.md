@@ -274,7 +274,7 @@ Or in `config/default.json`:
 
 ## Authentication
 
-Set `FLEET_AUTH_TOKEN` to protect all API, WebSocket, and Web UI access:
+Set `FLEET_AUTH_TOKEN` to protect access to the fleet manager's API, MCP, WebSocket, and Web UI. This is a local access control token for securing the fleet manager itself — it is not related to your Anthropic API key or Claude authentication. Claude Code sessions use their own Anthropic credentials independently.
 
 ```bash
 FLEET_AUTH_TOKEN=your-secret-token python -m fleet_manager.server
@@ -283,11 +283,12 @@ FLEET_AUTH_TOKEN=your-secret-token python -m fleet_manager.server
 When auth is enabled:
 - The **Web UI** shows a login prompt on first visit. Enter the token to authenticate — it's stored in `localStorage` and persists across page reloads.
 - **API requests** must include `Authorization: Bearer <token>` header.
+- **MCP requests** require the same bearer token (sessions launched via `fleet start` are registered with the token automatically).
 - **WebSocket** connections must include `?token=<token>` query parameter.
 - A **logout** button appears in the header to clear the stored token.
 - The `/api/auth/check` endpoint is publicly accessible and returns whether auth is enabled, so the UI can detect when login is needed.
 
-When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works without a token.
+When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works without a token. Recommended when exposing the server beyond localhost (e.g. via SSH tunnel to the local network).
 
 ## REST API
 

@@ -31,7 +31,10 @@ class ForkPayload(BaseModel):
 
 @router.get("")
 async def list_sessions():
-    return db.get_all_sessions()
+    sessions = db.get_all_sessions()
+    for s in sessions:
+        s["queued_messages"] = len(db.get_queued_messages(s["session_id"]))
+    return sessions
 
 
 @router.post("")
@@ -69,19 +72,20 @@ async def get_session(session_id: str):
 
 
 @router.get("/{session_id}/output")
-async def get_session_output(session_id: str):
+async def get_session_output(session_id: str, lines: int | None = None):
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(404, f"Session '{session_id}' not found")
 
     cfg = get_config()
+    capture_lines = min(lines or cfg.ui.terminal_capture_lines, 5000)
     try:
         output = await capture_output(
             session["tmux_session"],
             session["tmux_pane"],
-            cfg.ui.terminal_capture_lines,
+            capture_lines,
         )
-        return {"output": output}
+        return {"output": output, "lines": capture_lines}
     except RuntimeError as e:
         raise HTTPException(502, str(e))
 

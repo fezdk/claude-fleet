@@ -60,6 +60,9 @@ async def start_session(
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-left", f" [{name}] ")
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-right", " Detach: Ctrl+B, D  %H:%M ")
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-style", "bg=#0969da,fg=#ffffff")
+    # Enable mouse scrollback and increase history buffer
+    _tmux_sync("set-option", "-t", f"={tmux_name}", "mouse", "on")
+    _tmux_sync("set-option", "-t", f"={tmux_name}", "history-limit", "10000")
     # Set pane colors to match dashboard terminal theme
     _tmux_sync("select-pane", "-t", f"={tmux_name}:0", "-P", "bg=#1e1e2e,fg=#cdd6f4")
 
@@ -145,6 +148,8 @@ async def fork_session(
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-left", f" [{new_name}] ")
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-right", " Detach: Ctrl+B, D  %H:%M ")
     _tmux_sync("set-option", "-t", f"={tmux_name}", "status-style", "bg=#0969da,fg=#ffffff")
+    _tmux_sync("set-option", "-t", f"={tmux_name}", "mouse", "on")
+    _tmux_sync("set-option", "-t", f"={tmux_name}", "history-limit", "10000")
     _tmux_sync("select-pane", "-t", f"={tmux_name}:0", "-P", "bg=#1e1e2e,fg=#cdd6f4")
 
     # Build MCP URL and fleet system prompt

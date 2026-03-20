@@ -62,6 +62,14 @@ async def report_status(
     await ws_manager.broadcast("session:update", session)
     await notify_state_change(session_id, state, summary)
     logger.info("[%s] %s → %s: %s", session_id, state, summary, detail or "")
+
+    # Immediately deliver queued messages when session becomes IDLE
+    if state == "IDLE" and session:
+        from fleet_manager.server import deliver_queued_for_session
+        from fleet_manager.config import get_config
+        prefix = get_config().sessions.message_prefix
+        await deliver_queued_for_session(session, prefix)
+
     return {"ok": True, "session": session}
 
 

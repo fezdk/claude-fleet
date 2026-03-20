@@ -20,7 +20,7 @@
     "default_height": 50
   },
   "ui": {
-    "terminal_capture_lines": 50,
+    "terminal_capture_lines": 200,
     "max_status_history": 100
   },
   "notifications": {

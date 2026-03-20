@@ -36,25 +36,30 @@ logger = logging.getLogger(__name__)
 _start_time: datetime | None = None
 
 
+async def deliver_queued_for_session(session: dict, prefix: str) -> None:
+    """Deliver queued messages to a session that is ready to receive input."""
+    queued = get_queued_messages(session["session_id"])
+    for msg in queued:
+        content = msg["content"] if msg.get("raw") else f"{prefix} {msg['content']}"
+        try:
+            await inject_input(session["tmux_session"], session["tmux_pane"], content)
+            mark_message_delivered(msg["message_id"])
+            logger.info("Delivered queued message %s to %s", msg["message_id"], session["session_id"])
+        except RuntimeError as e:
+            logger.warning("Failed to deliver message %s: %s", msg["message_id"], e)
+        break  # One message at a time to avoid overwhelming the session
+
+
 async def _queue_delivery_loop(interval: int, prefix: str) -> None:
-    """Periodically deliver queued messages to sessions that become IDLE."""
+    """Periodically deliver queued messages to sessions that are IDLE or AWAITING_INPUT."""
     while True:
         await asyncio.sleep(interval)
         try:
             sessions = get_all_sessions()
             for session in sessions:
-                if session["state"] != "IDLE":
+                if session["state"] not in ("IDLE", "AWAITING_INPUT"):
                     continue
-                queued = get_queued_messages(session["session_id"])
-                for msg in queued:
-                    content = msg["content"] if msg.get("raw") else f"{prefix} {msg['content']}"
-                    try:
-                        await inject_input(session["tmux_session"], session["tmux_pane"], content)
-                        mark_message_delivered(msg["message_id"])
-                        logger.info("Delivered queued message %s to %s", msg["message_id"], session["session_id"])
-                    except RuntimeError as e:
-                        logger.warning("Failed to deliver message %s: %s", msg["message_id"], e)
-                    break  # One message at a time per session per cycle
+                await deliver_queued_for_session(session, prefix)
         except Exception:
             logger.exception("Error in queue delivery loop")
 
@@ -94,6 +99,15 @@ async def _heartbeat_loop(stale_minutes: int) -> None:
                             "minutes_since_update": int(age_minutes),
                         })
                         await notify_stale(session["session_id"], int(age_minutes))
+                        # If stale session has queued messages, try delivering anyway —
+                        # the session may have lost its fleet prompt via context compression
+                        # and stopped reporting state, but is still accepting input.
+                        queued = get_queued_messages(session["session_id"])
+                        if queued:
+                            cfg = get_config()
+                            logger.info("Session %s: stale with %d queued messages, attempting delivery",
+                                        session["session_id"], len(queued))
+                            await deliver_queued_for_session(session, cfg.sessions.message_prefix)
         except Exception:
             logger.exception("Error in heartbeat loop")
 

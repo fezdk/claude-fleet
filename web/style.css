@@ -245,7 +245,8 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   border-radius: 6px 6px 0 0;
   font-size: 0.78rem;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-  max-height: 500px;
+  height: calc(100dvh - 700px);
+  min-height: 200px;
   overflow: auto;
   white-space: pre;
   line-height: 1.4;
@@ -849,6 +850,18 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   padding: 0 5px;
   border-radius: 8px;
   font-weight: 700;
+}
+.tab-queued-badge {
+  background: rgba(240, 136, 62, 0.2);
+  color: var(--orange);
+  font-size: 0.6rem;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+.queued-badge {
+  color: var(--orange);
+  font-weight: 600;
 }
 .tab-terminal {
   flex: 1;

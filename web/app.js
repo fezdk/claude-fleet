@@ -14,6 +14,94 @@ let viewMode = localStorage.getItem('fleet_view_mode') || 'list';
 let activeTabSessionId = null;
 let viewRefreshTimer = null;
 
+// ── Message History (per-session) ──
+
+const MSG_HISTORY_KEY = 'fleet_msg_history';
+const MSG_HISTORY_MAX = 50;
+let allHistory = JSON.parse(localStorage.getItem(MSG_HISTORY_KEY) || '{}');
+let msgHistoryIndex = -1;
+let msgHistoryDraft = '';
+const sessionDrafts = {};  // sessionId -> unsent draft text
+
+function _getActiveSessionId() {
+  return focusSessionId || activeTabSessionId || currentSessionId;
+}
+
+function _getHistory(sessionId) {
+  if (!sessionId) return [];
+  if (!allHistory[sessionId]) allHistory[sessionId] = [];
+  return allHistory[sessionId];
+}
+
+function pushHistory(text) {
+  const sid = _getActiveSessionId();
+  if (!text || !sid) return;
+  const hist = _getHistory(sid);
+  if (hist.length > 0 && hist[hist.length - 1] === text) return;
+  hist.push(text);
+  if (hist.length > MSG_HISTORY_MAX) hist.shift();
+  allHistory[sid] = hist;
+  localStorage.setItem(MSG_HISTORY_KEY, JSON.stringify(allHistory));
+  msgHistoryIndex = -1;
+  msgHistoryDraft = '';
+  delete sessionDrafts[sid];
+}
+
+function clearSessionHistory(sessionId) {
+  if (!sessionId) return;
+  delete allHistory[sessionId];
+  delete sessionDrafts[sessionId];
+  localStorage.setItem(MSG_HISTORY_KEY, JSON.stringify(allHistory));
+}
+
+function saveDraft(inputEl) {
+  const sid = _getActiveSessionId();
+  if (sid && inputEl) sessionDrafts[sid] = inputEl.value || '';
+}
+
+function restoreDraft(inputEl) {
+  const sid = _getActiveSessionId();
+  if (inputEl) inputEl.value = (sid && sessionDrafts[sid]) || '';
+  msgHistoryIndex = -1;
+  msgHistoryDraft = '';
+}
+
+function historyKeyHandler(e) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  if (e.target.tagName === 'TEXTAREA') return;
+  const sid = _getActiveSessionId();
+  const hist = _getHistory(sid);
+  if (hist.length === 0) return;
+
+  e.preventDefault();
+  const input = e.target;
+
+  if (e.key === 'ArrowUp') {
+    if (msgHistoryIndex === -1) {
+      msgHistoryDraft = input.value;
+      msgHistoryIndex = hist.length - 1;
+    } else if (msgHistoryIndex > 0) {
+      msgHistoryIndex--;
+    }
+    input.value = hist[msgHistoryIndex];
+  } else {
+    if (msgHistoryIndex === -1) return;
+    if (msgHistoryIndex < hist.length - 1) {
+      msgHistoryIndex++;
+      input.value = hist[msgHistoryIndex];
+    } else {
+      msgHistoryIndex = -1;
+      input.value = msgHistoryDraft;
+    }
+  }
+}
+
+// Attach history navigation to all message inputs
+for (const id of ['focus-msg-input', 'tab-msg-input', 'sidetab-msg-input']) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('keydown', historyKeyHandler);
+}
+
 // ── WebSocket ──
 
 function getAuthToken() {
@@ -124,6 +212,25 @@ function ansiToHtml(text) {
   let open = false;
   let i = 0;
 
+  // Stateful style tracking — persists across escape sequences so that
+  // e.g. a foreground change doesn't discard the current background.
+  let st = {};
+
+  function applyState() {
+    if (open) { result += '</span>'; open = false; }
+    const styles = [];
+    if (st.bold) styles.push('font-weight:bold');
+    if (st.dim) styles.push('opacity:0.7');
+    if (st.italic) styles.push('font-style:italic');
+    if (st.underline) styles.push('text-decoration:underline');
+    if (st.color) styles.push(`color:${st.color}`);
+    if (st.bg) styles.push(`background:${st.bg}`);
+    if (styles.length) {
+      result += `<span style="${styles.join(';')}">`;
+      open = true;
+    }
+  }
+
   while (i < escaped.length) {
     // Match ESC[ ... m sequences (SGR)
     if (escaped[i] === '\x1b' && escaped[i+1] === '[') {
@@ -132,33 +239,34 @@ function ansiToHtml(text) {
       const codes = escaped.slice(i+2, end).split(';').map(Number);
       i = end + 1;
 
-      const styles = [];
+      let changed = false;
       for (let c = 0; c < codes.length; c++) {
         const code = codes[c];
-        if (code === 0) { if (open) { result += '</span>'; open = false; } continue; }
-        if (code === 1) styles.push('font-weight:bold');
-        else if (code === 2) styles.push('opacity:0.7');
-        else if (code === 3) styles.push('font-style:italic');
-        else if (code === 4) styles.push('text-decoration:underline');
-        else if (code >= 30 && code <= 37) styles.push(`color:${ANSI_COLORS[code-30]}`);
-        else if (code >= 40 && code <= 47) styles.push(`background:${ANSI_COLORS[code-40]}`);
-        else if (code >= 90 && code <= 97) styles.push(`color:${ANSI_COLORS[code-82]}`);
-        else if (code >= 100 && code <= 107) styles.push(`background:${ANSI_COLORS[code-92]}`);
-        else if (code === 38 && codes[c+1] === 5) { styles.push(`color:${ansi256(codes[c+2]||0)}`); c+=2; }
-        else if (code === 48 && codes[c+1] === 5) { styles.push(`background:${ansi256(codes[c+2]||0)}`); c+=2; }
-        else if (code === 38 && codes[c+1] === 2) { styles.push(`color:rgb(${codes[c+2]||0},${codes[c+3]||0},${codes[c+4]||0})`); c+=4; }
-        else if (code === 48 && codes[c+1] === 2) { styles.push(`background:rgb(${codes[c+2]||0},${codes[c+3]||0},${codes[c+4]||0})`); c+=4; }
+        if (code === 0) { st = {}; changed = true; }
+        else if (code === 1) { st.bold = true; changed = true; }
+        else if (code === 2) { st.dim = true; changed = true; }
+        else if (code === 3) { st.italic = true; changed = true; }
+        else if (code === 4) { st.underline = true; changed = true; }
+        else if (code === 22) { st.bold = false; st.dim = false; changed = true; }
+        else if (code === 23) { st.italic = false; changed = true; }
+        else if (code === 24) { st.underline = false; changed = true; }
+        else if (code === 39) { delete st.color; changed = true; }
+        else if (code === 49) { delete st.bg; changed = true; }
+        else if (code >= 30 && code <= 37) { st.color = ANSI_COLORS[code-30]; changed = true; }
+        else if (code >= 40 && code <= 47) { st.bg = ANSI_COLORS[code-40]; changed = true; }
+        else if (code >= 90 && code <= 97) { st.color = ANSI_COLORS[code-82]; changed = true; }
+        else if (code >= 100 && code <= 107) { st.bg = ANSI_COLORS[code-92]; changed = true; }
+        else if (code === 38 && codes[c+1] === 5) { st.color = ansi256(codes[c+2]||0); c+=2; changed = true; }
+        else if (code === 48 && codes[c+1] === 5) { st.bg = ansi256(codes[c+2]||0); c+=2; changed = true; }
+        else if (code === 38 && codes[c+1] === 2) { st.color = `rgb(${codes[c+2]||0},${codes[c+3]||0},${codes[c+4]||0})`; c+=4; changed = true; }
+        else if (code === 48 && codes[c+1] === 2) { st.bg = `rgb(${codes[c+2]||0},${codes[c+3]||0},${codes[c+4]||0})`; c+=4; changed = true; }
       }
-      if (styles.length) {
-        if (open) result += '</span>';
-        result += `<span style="${styles.join(';')}">`;
-        open = true;
-      }
+      if (changed) applyState();
       continue;
     }
     // Strip other escape sequences (OSC, charset, etc)
     if (escaped[i] === '\x1b') {
-      if (escaped[i+1] === ']') { const st = escaped.indexOf('\x07', i); i = st === -1 ? i+1 : st+1; continue; }
+      if (escaped[i+1] === ']') { const st2 = escaped.indexOf('\x07', i); i = st2 === -1 ? i+1 : st2+1; continue; }
       i += 2; continue;
     }
     result += escaped[i++];
@@ -242,6 +350,7 @@ function renderListView(sessions) {
         <div class="summary" onclick="showSession('${s.session_id}')" style="cursor:pointer">${esc(s.summary || 'No status reported')}</div>
         <div class="meta">
           ${s.project_root ? esc(s.project_root) + ' &middot; ' : ''}${timeAgo(s.last_seen)}
+          ${s.queued_messages ? ` &middot; <span class="queued-badge">${s.queued_messages} queued</span>` : ''}
         </div>
       </div>
     `;
@@ -265,6 +374,7 @@ function renderTabView(sessions) {
         <span class="tab-dot" style="background:${stateColor}"></span>
         ${esc(s.session_id)}
         ${qCount > 0 ? `<span class="tab-question-badge">${qCount}</span>` : ''}
+        ${s.queued_messages ? `<span class="tab-queued-badge">${s.queued_messages}</span>` : ''}
       </button>
     `;
   }).join('');
@@ -281,8 +391,10 @@ function renderTabView(sessions) {
 }
 
 function selectTab(sessionId) {
+  saveDraft(document.getElementById('tab-msg-input'));
   activeTabSessionId = sessionId;
   refreshDashboard();
+  restoreDraft(document.getElementById('tab-msg-input'));
 }
 
 function renderSideTabView(sessions) {
@@ -303,7 +415,10 @@ function renderSideTabView(sessions) {
           <span class="state state-${s.state}" style="font-size:0.65rem;padding:1px 6px">${s.state}</span>
         </div>
         <div class="sidetab-summary">${esc(s.summary || '')}</div>
-        <div class="sidetab-meta">${timeAgo(s.last_seen)}</div>
+        <div class="sidetab-meta">
+          ${timeAgo(s.last_seen)}
+          ${s.queued_messages ? ` · <span class="queued-badge">${s.queued_messages} queued</span>` : ''}
+        </div>
         ${qCount > 0 ? `<span class="tab-question-badge" style="margin-top:4px;display:inline-block">${qCount} ?</span>` : ''}
       </div>
     `;
@@ -321,8 +436,10 @@ function renderSideTabView(sessions) {
 }
 
 function selectSideTab(sessionId) {
+  saveDraft(document.getElementById('sidetab-msg-input'));
   activeTabSessionId = sessionId;
   refreshDashboard();
+  restoreDraft(document.getElementById('sidetab-msg-input'));
 }
 
 function showDashboard() {
@@ -445,17 +562,56 @@ function showStatusMsg(elId, text, type) {
   if (type !== 'error') setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
-async function loadTerminalInto(sessionId, preElId) {
+// Track loaded line counts per terminal element for lazy loading
+const terminalLines = {};
+const terminalLoading = {};
+const INITIAL_LINES = 200;
+const LOAD_MORE_STEP = 500;
+const MAX_LINES = 5000;
+
+async function loadTerminalInto(sessionId, preElId, lines) {
   const pre = document.getElementById(preElId);
   if (!pre) return;
+  const requestLines = lines || terminalLines[preElId] || INITIAL_LINES;
   try {
-    const data = await api(`/api/sessions/${sessionId}/output`);
+    const data = await api(`/api/sessions/${sessionId}/output?lines=${requestLines}`);
     const wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
     pre.innerHTML = ansiToHtml(data.output || '(empty)');
+    terminalLines[preElId] = requestLines;
     if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
+    // Attach scroll-to-top loader if not already attached
+    if (!pre.dataset.scrollWatch) {
+      pre.dataset.scrollWatch = '1';
+      pre.addEventListener('scroll', () => onTerminalScroll(pre, preElId, sessionId));
+    }
+    // Update session ID for scroll handler
+    pre.dataset.sessionId = sessionId;
   } catch {
     pre.innerHTML = '(could not capture terminal output)';
   }
+}
+
+async function onTerminalScroll(pre, preElId, fallbackSessionId) {
+  // Load more when scrolled near the top
+  if (pre.scrollTop > 50) return;
+  const currentLines = terminalLines[preElId] || INITIAL_LINES;
+  if (currentLines >= MAX_LINES) return;
+  if (terminalLoading[preElId]) return;
+
+  const sessionId = pre.dataset.sessionId || fallbackSessionId;
+  if (!sessionId) return;
+
+  terminalLoading[preElId] = true;
+  const newLines = Math.min(currentLines + LOAD_MORE_STEP, MAX_LINES);
+  try {
+    const data = await api(`/api/sessions/${sessionId}/output?lines=${newLines}`);
+    const oldHeight = pre.scrollHeight;
+    pre.innerHTML = ansiToHtml(data.output || '(empty)');
+    terminalLines[preElId] = newLines;
+    // Preserve scroll position: offset by the height difference
+    pre.scrollTop = pre.scrollHeight - oldHeight + pre.scrollTop;
+  } catch { /* ignore */ }
+  terminalLoading[preElId] = false;
 }
 
 function toggleViewCommandDropdown(prefix) {
@@ -509,9 +665,15 @@ function setViewMode(mode) {
     }, 3000);
   }
 
-  // Refresh if dashboard is visible
+  // If in detail view, switch back to dashboard with the current session pre-selected
+  if (currentSessionId && (mode === 'tab' || mode === 'sidetab')) {
+    activeTabSessionId = currentSessionId;
+  }
   if (!document.getElementById('dashboard').classList.contains('hidden')) {
     refreshDashboard();
+  } else {
+    // Detail view is open — return to dashboard
+    showDashboard();
   }
 }
 
@@ -654,14 +816,11 @@ async function submitAnswer(questionId) {
 }
 
 async function loadOutput(sessionId) {
+  // Use shared loader with lazy scroll support
+  await loadTerminalInto(sessionId, 'terminal-output');
+  // Initial load scrolls to bottom
   const pre = document.getElementById('terminal-output');
-  try {
-    const data = await api(`/api/sessions/${sessionId}/output`);
-    pre.innerHTML = ansiToHtml(data.output || '(empty)');
-    pre.scrollTop = pre.scrollHeight;
-  } catch {
-    pre.innerHTML = '(could not capture terminal output)';
-  }
+  if (pre) pre.scrollTop = pre.scrollHeight;
 }
 
 // ── Auto-refresh terminal output ──
@@ -699,6 +858,7 @@ document.getElementById('message-form').addEventListener('submit', async (e) => 
       method: 'POST',
       body: JSON.stringify({ content, urgent, from_client: 'web' }),
     });
+    pushHistory(content);
     input.value = '';
     const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
     showMessageStatus(`Sent (${method})`, 'success');
@@ -722,6 +882,7 @@ async function deleteCurrentSession() {
   if (!confirm(`Stop and remove session "${currentSessionId}"? This will kill the tmux session.`)) return;
   try {
     await api(`/api/sessions/${currentSessionId}`, { method: 'DELETE' });
+    clearSessionHistory(currentSessionId);
     showDashboard();
   } catch (e) {
     alert(`Failed: ${e.message}`);
@@ -783,35 +944,46 @@ async function refreshMultiView() {
     const cols = count <= 1 ? 1 : count <= 4 ? 2 : 3;
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
 
-    // Build panes (preserve scroll positions)
-    const existingPanes = {};
-    grid.querySelectorAll('.multi-pane-terminal').forEach(el => {
-      existingPanes[el.dataset.sid] = el.scrollTop;
-    });
+    // Check if session list changed — only rebuild DOM if needed
+    const existingIds = [...grid.querySelectorAll('.multi-pane-terminal')].map(el => el.dataset.sid);
+    const newIds = sessions.map(s => s.session_id);
+    const needsRebuild = existingIds.length !== newIds.length || existingIds.some((id, i) => id !== newIds[i]);
 
-    grid.innerHTML = sessions.map(s => `
-      <div class="multi-pane">
-        <div class="multi-pane-header">
-          <span class="pane-title">${esc(s.session_id)}</span>
-          <span class="state state-${s.state}">${s.state}</span>
+    if (needsRebuild) {
+      grid.innerHTML = sessions.map(s => `
+        <div class="multi-pane">
+          <div class="multi-pane-header">
+            <span class="pane-title">${esc(s.session_id)}</span>
+            <span class="state state-${s.state}">${s.state}</span>
+          </div>
+          <pre class="multi-pane-terminal" data-sid="${s.session_id}" onclick="closeMultiView();openFocus('${s.session_id}')"
+               style="cursor:pointer" title="Click to open focused view"></pre>
         </div>
-        <pre class="multi-pane-terminal" data-sid="${s.session_id}" onclick="closeMultiView();openFocus('${s.session_id}')"
-             style="cursor:pointer" title="Click to open focused view"></pre>
-      </div>
-    `).join('');
+      `).join('');
+    } else {
+      // Update state badges in-place
+      sessions.forEach(s => {
+        const pane = grid.querySelector(`[data-sid="${s.session_id}"]`)?.closest('.multi-pane');
+        if (!pane) return;
+        const badge = pane.querySelector('.state');
+        if (badge) {
+          badge.textContent = s.state;
+          badge.className = `state state-${s.state}`;
+        }
+      });
+    }
 
-    // Load outputs in parallel
+    // Load outputs in parallel — update content while preserving scroll
     await Promise.all(sessions.map(async s => {
       const pre = grid.querySelector(`[data-sid="${s.session_id}"]`);
       if (!pre) return;
       try {
         const data = await api(`/api/sessions/${s.session_id}/output`);
+        const wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
         pre.innerHTML = ansiToHtml(data.output || '(empty)');
-        // Restore scroll or scroll to bottom
-        if (existingPanes[s.session_id] !== undefined) {
-          pre.scrollTop = existingPanes[s.session_id];
-        } else {
+        if (wasAtBottom || !pre.dataset.loaded) {
           pre.scrollTop = pre.scrollHeight;
+          pre.dataset.loaded = '1';
         }
       } catch {
         pre.innerHTML = '(no output)';
@@ -827,7 +999,8 @@ async function refreshMultiView() {
 async function openFocus(sessionId) {
   focusSessionId = sessionId;
   document.getElementById('focus-overlay').classList.remove('hidden');
-  document.getElementById('focus-msg-input').value = '';
+  const focusInput = document.getElementById('focus-msg-input');
+  restoreDraft(focusInput);
   document.getElementById('focus-msg-status').classList.add('hidden');
   document.getElementById('focus-fork-btn').classList.add('hidden');
 
@@ -858,18 +1031,11 @@ function updateFocusHeader(s) {
 
 async function loadFocusOutput() {
   if (!focusSessionId) return;
-  const pre = document.getElementById('focus-terminal');
-  try {
-    const data = await api(`/api/sessions/${focusSessionId}/output`);
-    const wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
-    pre.innerHTML = ansiToHtml(data.output || '(empty)');
-    if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
-  } catch {
-    pre.innerHTML = '(could not capture terminal output)';
-  }
+  await loadTerminalInto(focusSessionId, 'focus-terminal');
 }
 
 function closeFocus() {
+  saveDraft(document.getElementById('focus-msg-input'));
   focusSessionId = null;
   document.getElementById('focus-overlay').classList.add('hidden');
   if (focusRefreshTimer) {
@@ -915,6 +1081,7 @@ async function deleteFocusSession() {
   if (!confirm(`Stop and remove session "${focusSessionId}"? This will kill the tmux session.`)) return;
   try {
     await api(`/api/sessions/${focusSessionId}`, { method: 'DELETE' });
+    clearSessionHistory(focusSessionId);
     closeFocus();
     refreshDashboard();
   } catch (e) {
@@ -1103,6 +1270,7 @@ document.getElementById('focus-message-form').addEventListener('submit', async (
       method: 'POST',
       body: JSON.stringify({ content, urgent: false, from_client: 'web' }),
     });
+    pushHistory(content);
     input.value = '';
     const method = result.delivery_method || (result.delivered ? 'delivered' : 'queued');
     const el = document.getElementById('focus-msg-status');
@@ -1456,6 +1624,7 @@ document.getElementById('tab-message-form').addEventListener('submit', async (e)
   const content = input.value.trim();
   if (!content || !activeTabSessionId) return;
   if (await sendMessageTo(activeTabSessionId, content, 'tab-msg-status')) {
+    pushHistory(content);
     input.value = '';
   }
 });
@@ -1466,6 +1635,7 @@ document.getElementById('sidetab-message-form').addEventListener('submit', async
   const content = input.value.trim();
   if (!content || !activeTabSessionId) return;
   if (await sendMessageTo(activeTabSessionId, content, 'sidetab-msg-status')) {
+    pushHistory(content);
     input.value = '';
   }
 });
