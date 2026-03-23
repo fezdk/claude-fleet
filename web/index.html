@@ -180,6 +180,7 @@
         </div>
         <div class="focus-actions">
           <button class="btn-sm" onclick="openDetailFromFocus()">Detail</button>
+          <button class="btn-sm" onclick="openEditor(focusSessionId)">Edit</button>
           <button id="focus-fork-btn" class="btn-sm btn-accent hidden" onclick="forkFocusSession()">Fork</button>
           <button class="btn-sm btn-danger" onclick="deleteFocusSession()">Stop</button>
           <button class="btn-sm" onclick="closeFocus()">Close</button>
@@ -243,6 +244,41 @@
         <button type="submit" class="btn-accent">Send</button>
       </form>
       <div id="focus-msg-status" class="msg-status hidden"></div>
+    </div>
+  </div>
+
+  <!-- File Editor Overlay -->
+  <div id="editor-overlay" class="focus-overlay hidden" onclick="if(event.target===this)closeEditor()">
+    <div class="editor-modal">
+      <div class="editor-header">
+        <div class="editor-title">
+          <h2 id="editor-session-name"></h2>
+          <span id="editor-breadcrumb" class="editor-breadcrumb"></span>
+          <span id="editor-permission" class="editor-perm"></span>
+        </div>
+        <div class="editor-actions">
+          <button id="editor-save-btn" class="btn-sm btn-accent" onclick="editorSave()" disabled>Save</button>
+          <button class="btn-sm" onclick="closeEditor()">Close</button>
+        </div>
+      </div>
+      <div id="editor-picker" class="editor-picker">
+        <div class="editor-picker-nav">
+          <button id="editor-up-btn" class="btn-sm" onclick="editorNavigateUp()" title="Parent directory">.. up</button>
+          <span id="editor-cwd" class="editor-cwd"></span>
+          <label class="toggle-label"><input type="checkbox" id="editor-show-hidden" onchange="editorRefreshDir()"> Hidden</label>
+        </div>
+        <div id="editor-file-list" class="editor-file-list"></div>
+      </div>
+      <div id="editor-content" class="editor-content hidden">
+        <div class="editor-toolbar">
+          <button class="btn-sm" onclick="editorBackToPicker()">Browse</button>
+          <span id="editor-filename" class="editor-filename"></span>
+          <span id="editor-size" class="editor-size"></span>
+          <span id="editor-dirty" class="editor-dirty hidden">Modified</span>
+        </div>
+        <textarea id="editor-textarea" class="editor-textarea" spellcheck="false"></textarea>
+      </div>
+      <div id="editor-status" class="msg-status hidden"></div>
     </div>
   </div>
 

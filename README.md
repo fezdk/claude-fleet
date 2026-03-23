@@ -227,6 +227,7 @@ Dashboard at `http://127.0.0.1:7700`:
 - **Session detail** — click the session name for the full detail page with questions, messages, terminal output, and status history
 - **Question modals** — when a session asks a question, a modal appears on top of the focus view for answering
 - **New Session** — start sessions directly from the dashboard with project path autocomplete and auto-naming
+- **File editor** — click "Edit" in the focus modal or tab/sidetab keys bar to open an in-browser file editor. Browse the session's project directory, open files in a monospace textarea, and save changes (Ctrl+S). Shows read/write permissions, rejects binary files and files over 500KB. Scoped to the session's project root for safety
 - **Login** — when auth is enabled, a login prompt appears; token is stored in localStorage
 - **Mobile responsive** — single-line sticky icon header, full-width focus/multi modals, compact keys bar, sidetab collapses to horizontal strip, dynamic viewport height (`dvh`) for correct sizing with mobile browser URL bars
 
@@ -304,6 +305,9 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 | POST | `/api/sessions/:id/message` | Send instructions to session (`raw: true` to skip prefix) |
 | POST | `/api/sessions/:id/keys` | Send raw keystrokes to the terminal (Enter, Escape, arrow keys, etc.) |
 | GET | `/api/filesystem/complete?path=...` | Directory completion for path input |
+| GET | `/api/filesystem/list` | Browse directory within session's project root |
+| GET | `/api/filesystem/read` | Read file content (500KB limit, UTF-8 only) |
+| POST | `/api/filesystem/write` | Save file content (existing files only, atomic write) |
 | GET | `/api/questions?pending=true` | Pending questions |
 | GET | `/api/questions/:session_id` | Questions for a session |
 | POST | `/api/questions/:id/answer` | Answer a question |

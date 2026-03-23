@@ -217,6 +217,8 @@ def update_claude_session_id(session_id: str, claude_session_id: str) -> None:
     db.commit()
 
 
+
+
 def delete_session(session_id: str) -> bool:
     db = get_db()
     # Clean up related records (status_log has no FK cascade)

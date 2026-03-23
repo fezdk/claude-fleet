@@ -503,6 +503,9 @@ function generateKeysBarHtml(prefix) {
       <button class="key-btn key-deny" onclick="sendKeyTo(activeTabSessionId,'n','${prefix}-terminal')" title="No">n</button>
       <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Space','${prefix}-terminal')" title="Space">Space</button>
     </div>
+    <div class="keys-group keys-right">
+      <button class="key-btn" onclick="openEditor(activeTabSessionId)" title="Edit files">Edit</button>
+    </div>
   `;
 }
 
@@ -1637,5 +1640,206 @@ document.getElementById('sidetab-message-form').addEventListener('submit', async
   if (await sendMessageTo(activeTabSessionId, content, 'sidetab-msg-status')) {
     pushHistory(content);
     input.value = '';
+  }
+});
+
+// ── File Editor ──
+
+let editorSessionId = null;
+let editorProjectRoot = null;
+let editorRelPath = '';
+let editorFilePath = null;
+let editorOrigContent = null;
+let editorWritable = false;
+
+function openEditor(sessionId) {
+  if (!sessionId) return;
+  editorSessionId = sessionId;
+  editorFilePath = null;
+  editorOrigContent = null;
+  document.getElementById('editor-overlay').classList.remove('hidden');
+  document.getElementById('editor-session-name').textContent = sessionId;
+  document.getElementById('editor-permission').className = 'editor-perm';
+  document.getElementById('editor-permission').textContent = '';
+  document.getElementById('editor-picker').classList.remove('hidden');
+  document.getElementById('editor-content').classList.add('hidden');
+  document.getElementById('editor-save-btn').disabled = true;
+  document.getElementById('editor-status').classList.add('hidden');
+  editorBrowse('');
+}
+
+function closeEditor() {
+  if (editorFilePath && editorIsDirty()) {
+    if (!confirm('You have unsaved changes. Close anyway?')) return;
+  }
+  editorSessionId = null;
+  editorFilePath = null;
+  editorOrigContent = null;
+  document.getElementById('editor-overlay').classList.add('hidden');
+}
+
+async function editorBrowse(relPath) {
+  editorRelPath = relPath;
+  const showHidden = document.getElementById('editor-show-hidden').checked;
+  try {
+    const data = await api(`/api/filesystem/list?session_id=${encodeURIComponent(editorSessionId)}&path=${encodeURIComponent(relPath)}&show_hidden=${showHidden}`);
+    editorProjectRoot = data.project_root;
+    document.getElementById('editor-up-btn').disabled = data.parent_path === null;
+    document.getElementById('editor-cwd').textContent = data.current_path || '/';
+    editorRenderBreadcrumb(data.current_path || '');
+    editorRenderFileList(data.entries);
+  } catch (e) {
+    editorShowStatus(`Error: ${e.message}`, 'error');
+  }
+}
+
+function editorRenderBreadcrumb(currentPath) {
+  const parts = currentPath ? currentPath.split('/') : [];
+  const projectName = editorProjectRoot ? editorProjectRoot.split('/').pop() : '';
+  let html = `<span onclick="editorBrowse('')">${esc(projectName)}</span>`;
+  let accumulated = '';
+  for (const part of parts) {
+    accumulated += (accumulated ? '/' : '') + part;
+    const p = accumulated;
+    html += ` / <span onclick="editorBrowse('${esc(p)}')">${esc(part)}</span>`;
+  }
+  document.getElementById('editor-breadcrumb').innerHTML = html;
+}
+
+function editorRenderFileList(entries) {
+  const list = document.getElementById('editor-file-list');
+  if (entries.length === 0) {
+    list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">(empty directory)</div>';
+    return;
+  }
+  list.innerHTML = entries.map(e => {
+    const isDir = e.type === 'dir';
+    const icon = isDir ? '/' : '~';
+    const size = !isDir && e.size != null ? fmtFileSize(e.size) : '';
+    const lock = !isDir && e.writable === false ? '<span class="file-lock">ro</span>' : '';
+    const nameClass = isDir ? 'file-name is-dir' : 'file-name';
+    const path = editorRelPath ? editorRelPath + '/' + e.name : e.name;
+    const onclick = isDir
+      ? `editorBrowse('${esc(path)}')`
+      : `editorOpenFile('${esc(path)}')`;
+    return `<div class="editor-file-item" onclick="${onclick}">
+      <span class="file-icon">${icon}</span>
+      <span class="${nameClass}">${esc(e.name)}</span>
+      ${lock}
+      <span class="file-size">${size}</span>
+    </div>`;
+  }).join('');
+}
+
+function fmtFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function editorNavigateUp() {
+  if (!editorRelPath) return;
+  const parts = editorRelPath.split('/');
+  parts.pop();
+  editorBrowse(parts.join('/'));
+}
+
+function editorRefreshDir() {
+  editorBrowse(editorRelPath);
+}
+
+async function editorOpenFile(relPath) {
+  try {
+    const data = await api(`/api/filesystem/read?session_id=${encodeURIComponent(editorSessionId)}&path=${encodeURIComponent(relPath)}`);
+    editorFilePath = data.path;
+    editorOrigContent = data.content;
+    editorWritable = data.writable;
+
+    document.getElementById('editor-picker').classList.add('hidden');
+    document.getElementById('editor-content').classList.remove('hidden');
+    document.getElementById('editor-textarea').value = data.content;
+    document.getElementById('editor-filename').textContent = data.path.split('/').pop();
+    document.getElementById('editor-size').textContent = fmtFileSize(data.size);
+    document.getElementById('editor-dirty').classList.add('hidden');
+
+    const permEl = document.getElementById('editor-permission');
+    if (data.writable) {
+      permEl.textContent = 'rw';
+      permEl.className = 'editor-perm rw';
+    } else {
+      permEl.textContent = 'read-only';
+      permEl.className = 'editor-perm ro';
+    }
+    document.getElementById('editor-save-btn').disabled = !data.writable;
+    document.getElementById('editor-status').classList.add('hidden');
+  } catch (e) {
+    editorShowStatus(`Cannot open: ${e.message.replace(/^\d+:\s*/, '')}`, 'error');
+  }
+}
+
+function editorBackToPicker() {
+  if (editorFilePath && editorIsDirty()) {
+    if (!confirm('You have unsaved changes. Go back anyway?')) return;
+  }
+  editorFilePath = null;
+  editorOrigContent = null;
+  document.getElementById('editor-content').classList.add('hidden');
+  document.getElementById('editor-picker').classList.remove('hidden');
+  document.getElementById('editor-permission').className = 'editor-perm';
+  document.getElementById('editor-permission').textContent = '';
+  editorRefreshDir();
+}
+
+async function editorSave() {
+  if (!editorFilePath || !editorWritable) return;
+  const content = document.getElementById('editor-textarea').value;
+  try {
+    const data = await api('/api/filesystem/write', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: editorSessionId,
+        path: editorFilePath,
+        content,
+      }),
+    });
+    editorOrigContent = content;
+    document.getElementById('editor-dirty').classList.add('hidden');
+    document.getElementById('editor-size').textContent = fmtFileSize(data.size);
+    editorShowStatus(`Saved (${fmtFileSize(data.size)})`, 'success');
+  } catch (e) {
+    editorShowStatus(`Save failed: ${e.message.replace(/^\d+:\s*/, '')}`, 'error');
+  }
+}
+
+function editorIsDirty() {
+  if (!editorFilePath || editorOrigContent === null) return false;
+  return document.getElementById('editor-textarea').value !== editorOrigContent;
+}
+
+function editorCheckDirty() {
+  const dirty = editorIsDirty();
+  const badge = document.getElementById('editor-dirty');
+  if (dirty) badge.classList.remove('hidden');
+  else badge.classList.add('hidden');
+}
+
+function editorShowStatus(text, type) {
+  const el = document.getElementById('editor-status');
+  el.textContent = text;
+  el.className = `msg-status ${type}`;
+  el.classList.remove('hidden');
+  if (type !== 'error') setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// Dirty detection on textarea input
+document.getElementById('editor-textarea').addEventListener('input', editorCheckDirty);
+
+// Ctrl+S / Cmd+S to save
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    if (!document.getElementById('editor-overlay').classList.contains('hidden')) {
+      e.preventDefault();
+      editorSave();
+    }
   }
 });
