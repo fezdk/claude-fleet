@@ -59,7 +59,7 @@ This starts the server on `http://127.0.0.1:7700` which hosts:
 - **WebSocket** (`/ws`) — live state updates to clients
 - **Web UI** (`/`) — dashboard for monitoring and control
 
-Environment overrides:
+Environment overrides (set as env vars or in a `.env` file in the project root):
 ```bash
 FLEET_PORT=7700
 FLEET_HOST=127.0.0.1

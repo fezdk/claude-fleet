@@ -461,8 +461,8 @@ function generateKeysBarHtml(prefix) {
     <div class="keys-group">
       <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Up','${prefix}-terminal')" title="Up arrow">&#9650;</button>
       <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Down','${prefix}-terminal')" title="Down arrow">&#9660;</button>
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Left','${prefix}-terminal')" title="Left arrow">&#9664;</button>
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Right','${prefix}-terminal')" title="Right arrow">&#9654;</button>
+    </div>
+    <div class="keys-group">
       <div class="cmd-dropdown-wrapper">
         <button class="key-btn key-cmd" onclick="toggleViewCommandDropdown('${prefix}')" title="Send command">/ Cmd</button>
         <div id="${prefix}-cmd-dropdown" class="cmd-dropdown hidden">
@@ -485,6 +485,10 @@ function generateKeysBarHtml(prefix) {
             <span class="cmd-name">/resume</span><span class="cmd-desc">Resume previous session</span>
           </div>
           <div class="cmd-dropdown-divider"></div>
+          <div class="cmd-dropdown-item cmd-dropdown-unstick" onclick="unstickSession(activeTabSessionId);closeViewDropdown('${prefix}')">
+            <span class="cmd-name">🚨 Unstick</span><span class="cmd-desc">Send "wait" + Enter</span>
+          </div>
+          <div class="cmd-dropdown-divider"></div>
           <div class="cmd-dropdown-custom">
             <input type="text" id="${prefix}-cmd-custom-input" placeholder="Custom message..." autocomplete="off"
                    onkeydown="if(event.key==='Enter'){event.preventDefault();sendViewCustomCommand('${prefix}')}">
@@ -494,14 +498,8 @@ function generateKeysBarHtml(prefix) {
       </div>
     </div>
     <div class="keys-group">
+      <button class="key-btn key-esc" onclick="sendKeyTo(activeTabSessionId,'Escape','${prefix}-terminal')" title="Escape">Esc</button>
       <button class="key-btn key-wide" onclick="sendKeyTo(activeTabSessionId,'Enter','${prefix}-terminal')" title="Enter">Enter &#9166;</button>
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Escape','${prefix}-terminal')" title="Escape">Esc</button>
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Tab','${prefix}-terminal')" title="Tab">Tab</button>
-    </div>
-    <div class="keys-group">
-      <button class="key-btn key-confirm" onclick="sendKeyTo(activeTabSessionId,'y','${prefix}-terminal')" title="Yes">y</button>
-      <button class="key-btn key-deny" onclick="sendKeyTo(activeTabSessionId,'n','${prefix}-terminal')" title="No">n</button>
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Space','${prefix}-terminal')" title="Space">Space</button>
     </div>
     <div class="keys-group keys-right">
       <button class="key-btn" onclick="openEditor(activeTabSessionId)" title="Edit files">Edit</button>
@@ -1642,6 +1640,19 @@ document.getElementById('sidetab-message-form').addEventListener('submit', async
     input.value = '';
   }
 });
+
+// ── Unstick Session ──
+
+async function unstickSession(sessionId) {
+  if (!sessionId) return;
+  if (!confirm(`Send "wait" + Enter to "${sessionId}" to unstick it?\n\nUse this when a session finished or was canceled but didn't report status, leaving messages queued.`)) return;
+  try {
+    await api(`/api/sessions/${sessionId}/unstick`, { method: 'POST' });
+    showStatusMsg('focus-msg-status', `Unstick sent to ${sessionId}`, 'success');
+  } catch (e) {
+    alert(`Unstick failed: ${e.message}`);
+  }
+}
 
 // ── File Editor ──
 

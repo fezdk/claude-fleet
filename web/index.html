@@ -68,6 +68,7 @@
         <div class="detail-nav-actions">
           <button class="btn-sm btn-accent" onclick="openFocus(currentSessionId)">Open Focus</button>
           <button class="btn-sm" onclick="loadOutput(currentSessionId)">Refresh Output</button>
+          <button class="btn-sm btn-warning" onclick="unstickSession(currentSessionId)" title="Send 'wait' + Enter to unstick">Unstick</button>
           <button class="btn-sm btn-danger" onclick="deleteCurrentSession()">Remove</button>
         </div>
       </nav>
@@ -182,6 +183,7 @@
           <button class="btn-sm" onclick="openDetailFromFocus()">Detail</button>
           <button class="btn-sm" onclick="openEditor(focusSessionId)">Edit</button>
           <button id="focus-fork-btn" class="btn-sm btn-accent hidden" onclick="forkFocusSession()">Fork</button>
+          <button class="btn-sm btn-warning" onclick="unstickSession(focusSessionId)" title="Send 'wait' + Enter to unstick a stuck session">Unstick</button>
           <button class="btn-sm btn-danger" onclick="deleteFocusSession()">Stop</button>
           <button class="btn-sm" onclick="closeFocus()">Close</button>
         </div>

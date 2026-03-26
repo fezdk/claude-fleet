@@ -5,6 +5,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# Load .env file from project root (if it exists) before reading config
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 
 @dataclass
 class ServerConfig:

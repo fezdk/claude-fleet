@@ -85,3 +85,18 @@ async def send_keys(session_id: str, payload: KeysPayload):
 
     await send_raw_keys(session["tmux_session"], session["tmux_pane"], payload.keys)
     return {"sent": payload.keys}
+
+
+@router.post("/{session_id}/unstick")
+async def unstick_session(session_id: str):
+    """Emergency unstick: send 'wait' + two Enters to wake a stuck session.
+
+    Use when Claude Code finished or was canceled but didn't report status,
+    leaving the fleet manager in WORKING state and queuing all messages.
+    """
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Session '{session_id}' not found")
+
+    await inject_input(session["tmux_session"], session["tmux_pane"], "wait")
+    return {"unstuck": True, "session_id": session_id}

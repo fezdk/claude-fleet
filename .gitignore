@@ -9,3 +9,4 @@ build/
 .claude/
 .mcp.json
 nohup.out
+.env
