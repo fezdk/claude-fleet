@@ -585,6 +585,15 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   z-index: 20;
   overflow: hidden;
 }
+.cmd-dropdown-close {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cmd-dropdown-close:hover { color: var(--text); }
 .cmd-dropdown-item {
   display: flex;
   justify-content: space-between;
@@ -1072,6 +1081,32 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   color: var(--yellow);
   font-weight: 600;
 }
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: #1e1e2e;
+  overflow: hidden;
+}
+.editor-line-numbers {
+  padding: 0.75rem 0;
+  padding-right: 0.5rem;
+  text-align: right;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #6e7681;
+  background: #1e1e2e;
+  border-right: 1px solid #44475a;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  min-width: 3rem;
+  flex-shrink: 0;
+}
+.editor-line-numbers div {
+  padding: 0 0.4rem;
+}
 .editor-textarea {
   flex: 1;
   min-height: 0;
@@ -1152,6 +1187,21 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   .tab-dot { width: 6px; height: 6px; }
   #view-tab { height: calc(100dvh - 80px); }
   .sidetab-layout { height: calc(100dvh - 80px); }
+
+  /* Command dropdown: fixed to viewport, opens upward above keys bar */
+  .cmd-dropdown {
+    position: fixed;
+    bottom: 5.5rem;
+    top: auto;
+    left: 0.5rem;
+    right: 0.5rem;
+    transform: none;
+    min-width: 0;
+    max-width: none;
+    width: auto;
+    max-height: 60dvh;
+    overflow-y: auto;
+  }
 
   /* Compact keys bar */
   .keys-bar { padding: 0.3rem 0.5rem; gap: 0.3rem; }

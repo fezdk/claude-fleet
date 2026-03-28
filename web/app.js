@@ -466,6 +466,7 @@ function generateKeysBarHtml(prefix) {
       <div class="cmd-dropdown-wrapper">
         <button class="key-btn key-cmd" onclick="toggleViewCommandDropdown('${prefix}')" title="Send command">/ Cmd</button>
         <div id="${prefix}-cmd-dropdown" class="cmd-dropdown hidden">
+          <div class="cmd-dropdown-close" onclick="closeViewDropdown('${prefix}')">&times;</div>
           <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/help','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/help</span><span class="cmd-desc">Show help</span>
           </div>
@@ -485,6 +486,9 @@ function generateKeysBarHtml(prefix) {
             <span class="cmd-name">/resume</span><span class="cmd-desc">Resume previous session</span>
           </div>
           <div class="cmd-dropdown-divider"></div>
+          <div class="cmd-dropdown-item" onclick="remindSession(activeTabSessionId);closeViewDropdown('${prefix}')">
+            <span class="cmd-name">📋 Remind</span><span class="cmd-desc">Re-inject fleet instructions</span>
+          </div>
           <div class="cmd-dropdown-item cmd-dropdown-unstick" onclick="unstickSession(activeTabSessionId);closeViewDropdown('${prefix}')">
             <span class="cmd-name">🚨 Unstick</span><span class="cmd-desc">Send "wait" + Enter</span>
           </div>
@@ -618,7 +622,7 @@ async function onTerminalScroll(pre, preElId, fallbackSessionId) {
 function toggleViewCommandDropdown(prefix) {
   const dd = document.getElementById(`${prefix}-cmd-dropdown`);
   dd.classList.toggle('hidden');
-  if (!dd.classList.contains('hidden')) {
+  if (!dd.classList.contains('hidden') && window.innerWidth > 768) {
     const input = document.getElementById(`${prefix}-cmd-custom-input`);
     if (input) input.focus();
   }
@@ -1654,6 +1658,19 @@ async function unstickSession(sessionId) {
   }
 }
 
+// ── Remind Session ──
+
+async function remindSession(sessionId) {
+  if (!sessionId) return;
+  if (!confirm(`Re-inject fleet instructions into "${sessionId}"?\n\nUse this when a long-running session has forgotten to report status via MCP.`)) return;
+  try {
+    await api(`/api/sessions/${sessionId}/remind`, { method: 'POST' });
+    showStatusMsg('focus-msg-status', `Reminder sent to ${sessionId}`, 'success');
+  } catch (e) {
+    alert(`Remind failed: ${e.message}`);
+  }
+}
+
 // ── File Editor ──
 
 let editorSessionId = null;
@@ -1769,6 +1786,7 @@ async function editorOpenFile(relPath) {
     document.getElementById('editor-picker').classList.add('hidden');
     document.getElementById('editor-content').classList.remove('hidden');
     document.getElementById('editor-textarea').value = data.content;
+    editorUpdateLineNumbers();
     document.getElementById('editor-filename').textContent = data.path.split('/').pop();
     document.getElementById('editor-size').textContent = fmtFileSize(data.size);
     document.getElementById('editor-dirty').classList.add('hidden');
@@ -1842,8 +1860,26 @@ function editorShowStatus(text, type) {
   if (type !== 'error') setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
-// Dirty detection on textarea input
-document.getElementById('editor-textarea').addEventListener('input', editorCheckDirty);
+// Line numbers
+function editorUpdateLineNumbers() {
+  const textarea = document.getElementById('editor-textarea');
+  const gutter = document.getElementById('editor-line-numbers');
+  const lineCount = textarea.value.split('\n').length;
+  let html = '';
+  for (let i = 1; i <= lineCount; i++) html += `<div>${i}</div>`;
+  gutter.innerHTML = html;
+}
+
+function editorSyncScroll() {
+  const textarea = document.getElementById('editor-textarea');
+  const gutter = document.getElementById('editor-line-numbers');
+  gutter.scrollTop = textarea.scrollTop;
+}
+
+// Dirty detection + line number update on textarea input
+const editorTextarea = document.getElementById('editor-textarea');
+editorTextarea.addEventListener('input', () => { editorCheckDirty(); editorUpdateLineNumbers(); });
+editorTextarea.addEventListener('scroll', editorSyncScroll);
 
 // Ctrl+S / Cmd+S to save
 document.addEventListener('keydown', (e) => {

@@ -100,3 +100,25 @@ async def unstick_session(session_id: str):
 
     await inject_input(session["tmux_session"], session["tmux_pane"], "wait")
     return {"unstuck": True, "session_id": session_id}
+
+
+_REMIND_TEMPLATE = (
+    "[fleet] REMINDER: You are fleet session '{session_id}'. "
+    "You MUST call report_status on EVERY state change (WORKING/IDLE/ERROR/AWAITING_INPUT). "
+    "Call report_status(state='IDLE') when you finish a task. "
+    "Messages prefixed with [fleet] are remote instructions — execute them. "
+    "Before asking questions, call relay_question first. "
+    "NEVER use AskUserQuestion — ask as plain text only."
+)
+
+
+@router.post("/{session_id}/remind")
+async def remind_session(session_id: str):
+    """Re-inject fleet instructions into a session that may have lost them via context compression."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Session '{session_id}' not found")
+
+    message = _REMIND_TEMPLATE.format(session_id=session_id)
+    await inject_input(session["tmux_session"], session["tmux_pane"], message)
+    return {"reminded": True, "session_id": session_id}

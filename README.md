@@ -304,6 +304,8 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 | DELETE | `/api/sessions/:id` | Stop + remove session (kills tmux) |
 | POST | `/api/sessions/:id/message` | Send instructions to session (`raw: true` to skip prefix) |
 | POST | `/api/sessions/:id/keys` | Send raw keystrokes to the terminal (Enter, Escape, arrow keys, etc.) |
+| POST | `/api/sessions/:id/unstick` | Emergency: send "wait" + Enter to wake a stuck session |
+| POST | `/api/sessions/:id/remind` | Re-inject fleet instructions into a session that lost them |
 | GET | `/api/filesystem/complete?path=...` | Directory completion for path input |
 | GET | `/api/filesystem/list` | Browse directory within session's project root |
 | GET | `/api/filesystem/read` | Read file content (500KB limit, UTF-8 only) |
