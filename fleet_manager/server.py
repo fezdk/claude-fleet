@@ -193,6 +193,15 @@ async def auth_check(authorization: str | None = Header(None)):
     return result
 
 
+# Config endpoint
+@app.get("/api/config")
+async def get_config_endpoint():
+    cfg = get_config()
+    return {
+        "terminal_mode": cfg.ui.terminal_mode,
+    }
+
+
 # Health endpoint
 @app.get("/api/health")
 async def health():

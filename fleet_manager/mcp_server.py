@@ -78,12 +78,12 @@ async def relay_question(
     session_id: str,
     items: list[dict[str, Any]],
     context: str = "",
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     """Mirror a question to the fleet manager BEFORE you print it to the terminal.
 
     This allows remote clients to see and answer your question. Always call
     this before asking anything in the terminal. Then proceed to ask normally —
-    the answer will arrive via terminal input regardless of whether the user is
+    the answer will arrive through terminal input regardless of whether the user is
     local or remote.
 
     Args:
@@ -91,6 +91,23 @@ async def relay_question(
         items: One or more question items. Each must have id (str), type (confirm|choice|multi_select|freetext), text (str), and optionally options (list[str]) and default (str).
         context: Brief context about why you're asking.
     """
+    # Validate items structure - reject non-dict objects or missing required fields
+    if not isinstance(items, list):
+        return {"error": "items must be a list of question objects", "relayed": False}
+    
+    valid_types = {"confirm", "choice", "multi_select", "freetext"}
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            return {"error": f"items[{idx}] must be a dict, got {type(item).__name__}", "relayed": False}
+        if "id" not in item:
+            return {"error": f"items[{idx}] missing required 'id' field", "relayed": False}
+        if "type" not in item:
+            return {"error": f"items[{idx}] missing required 'type' field", "relayed": False}
+        if item.get("type") not in valid_types:
+            return {"error": f"items[{idx}] type must be one of {valid_types}, got '{item.get('type')}'", "relayed": False}
+        if "text" not in item:
+            return {"error": f"items[{idx}] missing required 'text' field", "relayed": False}
+    
     items_json = json.dumps(items)
     question = db.create_question(session_id, items_json, context or None)
     await ws_manager.broadcast("question:new", question)

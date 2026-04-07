@@ -114,7 +114,14 @@ async def send_raw_keys(tmux_session: str, pane: str = "0", keys: list[str] | No
     _ensure_tmux()
     target = f"={tmux_session}:{pane}"
     for key in (keys or []):
-        _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, key])
+        if key == "ScrollUp":
+            # opencode: map to PageUp for scrolling up
+            _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, "PageUp"])
+        elif key == "ScrollDown":
+            # opencode: map to PageDown for scrolling down
+            _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, "PageDown"])
+        else:
+            _, stderr, rc = await _run(["tmux", "send-keys", "-t", target, key])
         if rc != 0:
             raise RuntimeError(f"tmux send-keys failed for '{key}': {stderr}")
 

@@ -64,6 +64,8 @@ _ALLOWED_KEYS = {
     "DC",  # Delete
     "y", "n",
     "C-c", "C-d", "C-z",
+    # Mouse scroll (for opencode TUI mode)
+    "ScrollUp", "ScrollDown",
 }
 
 

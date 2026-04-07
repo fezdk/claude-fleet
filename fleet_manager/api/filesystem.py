@@ -148,6 +148,54 @@ async def read_file(session_id: str, path: str):
     }
 
 
+@router.get("/tail")
+async def read_file_tail(session_id: str, path: str, lines: int = 200):
+    """Read the last N lines of a file within a session's project root.
+    
+    Use this for large log files - reads without size limits, just line limits.
+    """
+    project_root, full_path, _ = _resolve_session_path(session_id, path)
+
+    if not full_path.is_file():
+        raise HTTPException(404, "File not found")
+
+    if not os.access(full_path, os.R_OK):
+        raise HTTPException(403, "File is not readable")
+
+    size = full_path.stat().st_size
+    
+    try:
+        # Read last N lines efficiently
+        with open(full_path, 'rb') as f:
+            # Seek to end, then go back
+            f.seek(0, 2)
+            file_size = f.tell()
+            
+            # For small files, read all and tail
+            if file_size < 1_000_000:
+                content = f.seek(0) or f.read().decode('utf-8')
+                all_lines = content.splitlines()
+                tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                content = '\n'.join(tail_lines)
+            else:
+                # For larger files, read in chunks from end
+                chunk_size = 100_000
+                f.seek(max(0, file_size - chunk_size))
+                content = f.read().decode('utf-8')
+                all_lines = content.splitlines()
+                tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                content = '\n'.join(tail_lines)
+    except UnicodeDecodeError:
+        raise HTTPException(400, "Binary file — cannot read")
+
+    return {
+        "path": str(full_path.relative_to(project_root)),
+        "content": content,
+        "total_lines": len(content.splitlines()),
+        "size": size,
+    }
+
+
 class WritePayload(BaseModel):
     session_id: str
     path: str

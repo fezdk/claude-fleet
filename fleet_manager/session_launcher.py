@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -30,7 +31,7 @@ async def start_session(
     project: str,
     port: int = 7700,
 ) -> dict:
-    """Start a new fleet-managed Claude Code session.
+    """Start a new fleet-managed opencode session.
 
     Validates inputs, creates tmux session, registers MCP, launches Claude.
     Returns the created session dict.
@@ -66,24 +67,37 @@ async def start_session(
     # Set pane colors to match dashboard terminal theme
     _tmux_sync("select-pane", "-t", f"={tmux_name}:0", "-P", "bg=#1e1e2e,fg=#cdd6f4")
 
-    # Build MCP URL and fleet system prompt
+    # Build MCP URL, config, and fleet system prompt
     mcp_url = f"http://127.0.0.1:{port}/mcp/mcp"
+    auth_token = cfg.server.auth_token
+    mcp_config = {
+        "fleet-manager": {
+            "type": "remote",
+            "url": mcp_url,
+            "enabled": True
+        }
+    }
+    if auth_token:
+        mcp_config["fleet-manager"]["headers"] = {
+            "Authorization": f"Bearer {auth_token}"
+        }
+
+    # Build fleet system prompt
     fleet_prompt = generate_prompt(name, mcp_url=mcp_url)
 
-    # Build MCP registration command (include auth header if token is set)
-    auth_token = cfg.server.auth_token
-    mcp_add_cmd = f'claude mcp add --transport http --scope user fleet-manager {mcp_url}'
-    if auth_token:
-        mcp_add_cmd += f' --header "Authorization: Bearer {auth_token}"'
-
-    # Write a launcher script that handles MCP registration + Claude start
+    # Write a launcher script that handles config creation + opencode start
     script_file = f"/tmp/fleet-launch-{name}.sh"
     with open(script_file, "w") as f:
         f.write(f'#!/bin/bash\n')
-        f.write(f'{mcp_add_cmd} 2>/dev/null\n')
+        # Create opencode.json with MCP config only if not exists
+        f.write(f'if [ ! -f {project}/opencode.json ]; then\n')
+        f.write(f'  cat > {project}/opencode.json << \'OPENCODE_EOF\'\n')
+        f.write(json.dumps({"mcp": mcp_config}, indent=2))
+        f.write(f'\nOPENCODE_EOF\n')
+        f.write(f'fi\n')
         f.write(f'sleep 1\n')
-        f.write(f'FLEET_SESSION_ID={name} exec claude --permission-mode acceptEdits \\\n')
-        f.write(f'  --append-system-prompt "$(cat <<\'FLEET_PROMPT_EOF\'\n')
+        f.write(f'cd {project} && FLEET_SESSION_ID={name} exec opencode \\\n')
+        f.write(f'  --prompt "$(cat <<\'FLEET_PROMPT_EOF\'\n')
         f.write(fleet_prompt)
         f.write(f'\nFLEET_PROMPT_EOF\n')
         f.write(f')"\n')
@@ -97,7 +111,7 @@ async def start_session(
 
     # Launch via the script (avoids send-keys quoting issues)
     _tmux_sync("send-keys", "-t", f"={tmux_name}:0", f"bash {script_file}", "Enter")
-    logger.info("Launched Claude Code in session '%s'", name)
+    logger.info("Launched opencode in session '%s'", name)
 
     return session
 
@@ -152,49 +166,38 @@ async def fork_session(
     _tmux_sync("set-option", "-t", f"={tmux_name}", "history-limit", "10000")
     _tmux_sync("select-pane", "-t", f"={tmux_name}:0", "-P", "bg=#1e1e2e,fg=#cdd6f4")
 
-    # Build MCP URL and fleet system prompt
+    # Build MCP URL, config, and fleet system prompt
     mcp_url = f"http://127.0.0.1:{port}/mcp/mcp"
+    auth_token = cfg.server.auth_token
+    mcp_config = {
+        "fleet-manager": {
+            "type": "remote",
+            "url": mcp_url,
+            "enabled": True
+        }
+    }
+    if auth_token:
+        mcp_config["fleet-manager"]["headers"] = {
+            "Authorization": f"Bearer {auth_token}"
+        }
     fleet_prompt = generate_prompt(new_name, mcp_url=mcp_url)
 
-    # Build MCP registration command (include auth header if token is set)
-    auth_token = cfg.server.auth_token
-    mcp_add_cmd = f'claude mcp add --transport http --scope user fleet-manager {mcp_url}'
-    if auth_token:
-        mcp_add_cmd += f' --header "Authorization: Bearer {auth_token}"'
-
-    # Build the fork notification
-    fork_msg = (
-        f"You have been forked from session '{source_name}' into a new fleet session. "
-        f"Your new fleet session_id is '{new_name}' — use this for ALL fleet tool calls from now on. "
-        f"Your claude_session_id has also changed. Re-read it now "
-        f"(run: ls -t ~/.claude/projects/.../*.jsonl — first result is yours, extract the UUID from the filename) "
-        f"and immediately call report_status with state IDLE and the new claude_session_id."
-    )
-
     # Write launcher script.
-    # A background subshell polls tmux until Claude is running, then injects
-    # the fork notification as a [fleet] message.
+    # Creates opencode.json with MCP config, then runs opencode.
+    import json
     script_file = f"/tmp/fleet-launch-{new_name}.sh"
     tmux_target = f"={TMUX_PREFIX}{new_name}:0"
     with open(script_file, "w") as f:
         f.write(f'#!/bin/bash\n')
-        f.write(f'{mcp_add_cmd} 2>/dev/null\n')
+        f.write(f'# Create opencode.json with MCP config only if not exists\n')
+        f.write(f'if [ ! -f {project}/opencode.json ]; then\n')
+        f.write(f'  cat > {project}/opencode.json << \'OPENCODE_EOF\'\n')
+        f.write(json.dumps({"mcp": mcp_config}, indent=2))
+        f.write(f'\nOPENCODE_EOF\n')
+        f.write(f'fi\n')
         f.write(f'sleep 1\n')
-        # Background: poll until claude is the active process, then inject
-        f.write(f'(\n')
-        f.write(f'  for i in $(seq 1 30); do\n')
-        f.write(f'    CMD=$(tmux display-message -t "{tmux_target}" -p "#{{pane_current_command}}" 2>/dev/null)\n')
-        f.write(f'    [ "$CMD" = "claude" ] && break\n')
-        f.write(f'    sleep 1\n')
-        f.write(f'  done\n')
-        f.write(f'  sleep 2\n')
-        f.write(f'  tmux send-keys -t "{tmux_target}" "[fleet] {fork_msg}" Enter\n')
-        f.write(f'  sleep 0.2\n')
-        f.write(f'  tmux send-keys -t "{tmux_target}" Enter\n')
-        f.write(f') &\n')
-        f.write(f'FLEET_SESSION_ID={new_name} exec claude --resume {claude_sid} --fork-session \\\n')
-        f.write(f'  --permission-mode acceptEdits \\\n')
-        f.write(f'  --append-system-prompt "$(cat <<\'FLEET_PROMPT_EOF\'\n')
+        f.write(f'cd {project} && FLEET_SESSION_ID={new_name} exec opencode --session {claude_sid} --fork \\\n')
+        f.write(f'  --prompt "$(cat <<\'FLEET_PROMPT_EOF\'\n')
         f.write(fleet_prompt)
         f.write(f'\nFLEET_PROMPT_EOF\n')
         f.write(f')"\n')

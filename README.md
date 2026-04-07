@@ -1,8 +1,8 @@
-# Claude Fleet Manager
+# Fleet Manager
 
-Run and remotely control multiple Claude Code sessions in parallel. Launch sessions across different projects, send instructions, answer questions, press terminal keys, and fork conversations — from anywhere: your phone, a laptop, or even another Claude acting as an orchestrator.
+Run and remotely control multiple AI agent sessions in parallel. Launch sessions across different projects, send instructions, answer questions, press terminal keys, and fork conversations — from anywhere: your phone, a laptop, or even another AI acting as an orchestrator.
 
-Each Claude Code session runs in a tmux pane, connects to the fleet manager via MCP for state reporting and question relay, and receives instructions through a REST API. A real-time web dashboard provides a visual interface for monitoring and interacting with the fleet, but the system is equally usable through the API alone.
+Each agent session runs in a tmux pane, connects to the fleet manager via MCP for state reporting and question relay, and receives instructions through a REST API. A real-time web dashboard provides a visual interface for monitoring and interacting with the fleet, but the system is equally usable through the API alone.
 
 ## Architecture
 
@@ -17,8 +17,7 @@ Clients (Phone / Laptop / Orchestrator)
 └────┬──────────┬──────────┬─────┘
      │          │          │
   tmux:api   tmux:fe    tmux:ml
-  Claude     Claude     Claude
-  Code       Code       Code
+  opencode  opencode   opencode
 ```
 
 ## Prerequisites
@@ -31,7 +30,7 @@ Clients (Phone / Laptop / Orchestrator)
   # macOS
   brew install tmux
   ```
-- **Claude Code** CLI installed and authenticated
+- **opencode** CLI installed and authenticated (or any compatible agent CLI)
 
 ## Installation
 
@@ -54,7 +53,7 @@ python -m fleet_manager.server
 
 This starts the server on `http://127.0.0.1:7700` which hosts:
 
-- **MCP Server** (Streamable HTTP at `/mcp/mcp`) — Claude Code sessions connect here
+- **MCP Server** (Streamable HTTP at `/mcp/mcp`) — agent sessions connect here
 - **REST API** (`/api/`) — sessions, questions, messages
 - **WebSocket** (`/ws`) — live state updates to clients
 - **Web UI** (`/`) — dashboard for monitoring and control
@@ -108,19 +107,19 @@ ipconfig getifaddr en0            # macOS
 
 ## MCP Server Registration
 
-Sessions started via `fleet start` or the web UI automatically register the MCP server with Claude Code — no manual setup needed.
+Sessions started via `fleet start` or the web UI automatically register the MCP server with the agent — no manual setup needed.
 
-If you want to manually connect a Claude Code session to the fleet (outside of `fleet start`), register it yourself:
+If you want to manually connect an agent session to the fleet (outside of `fleet start`), register it yourself:
 
 ```bash
-claude mcp add --transport http --scope user fleet-manager http://127.0.0.1:7700/mcp/mcp
+opencode mcp add --transport http --scope user fleet-manager http://127.0.0.1:7700/mcp/mcp
 
 # If auth is enabled, include the token:
-claude mcp add --transport http --scope user fleet-manager http://127.0.0.1:7700/mcp/mcp \
+opencode mcp add --transport http --scope user fleet-manager http://127.0.0.1:7700/mcp/mcp \
   --header "Authorization: Bearer YOUR_TOKEN"
 ```
 
-> **Note:** The fleet manager server must be running when Claude Code starts a session,
+> **Note:** The fleet manager server must be running when the agent starts a session,
 > otherwise the MCP connection will fail. The MCP transport uses stateless HTTP, so server
 > restarts are transparent — no reconnection needed (see [MCP Connection Recovery](#mcp-connection-recovery)).
 
@@ -138,7 +137,7 @@ source .venv/bin/activate
 Now `fleet` is available and can be run from any directory:
 
 ```bash
-# Start a session (creates tmux + launches Claude Code, then attaches)
+# Start a session (creates tmux + launches opencode, then attaches)
 fleet start --name api --project /path/to/api
 
 # Start multiple sessions in batch (detached mode)
@@ -158,11 +157,11 @@ Click **+ New Session** in the dashboard header. Enter the project path (absolut
 
 To detach from a session without stopping it, press **Ctrl+B, D** (the tmux status bar at the bottom reminds you of this). You can reattach later with `fleet attach <name>`.
 
-Stopping a session (via `fleet stop <name>` or the **Stop** button in the web UI) kills the tmux session, terminates Claude Code, and removes the session from the database.
+Stopping a session (via `fleet stop <name>` or the **Stop** button in the web UI) kills the tmux session, terminates the agent, and removes the session from the database.
 
 ### Forking Sessions
 
-Fork creates a new session that branches from an existing session's conversation history using Claude's `--resume --fork-session` flags. The forked session starts with full context of what the original session was doing.
+Fork creates a new session that branches from an existing session's conversation history. The forked session starts with full context of what the original session was doing.
 
 ```bash
 # Fork from CLI
@@ -173,7 +172,7 @@ fleet fork api api-refactor -d   # Forked session, detached
 # Click "Open" on a session, then click the "Fork" button in the focus modal header
 ```
 
-Forking requires the source session to have reported its Claude session ID (happens automatically on first `report_status` call). If the Fork button is not visible in the UI, the session hasn't reported yet.
+Forking requires the source session to have reported its session ID (happens automatically on first `report_status` call). If the Fork button is not visible in the UI, the session hasn't reported yet.
 
 ### CLI Commands
 
@@ -188,15 +187,15 @@ fleet stop <name>                             # Stop session + cleanup
 
 `fleet start` will:
 1. Create a tmux session `fleet-<name>`
-2. Register the MCP server with Claude Code (if not already registered)
-3. Launch Claude Code with fleet instructions via `--append-system-prompt`
+2. Register the MCP server with the agent (if not already registered)
+3. Launch the agent with fleet instructions via `--prompt`
 4. Attach to the session (unless `-d` is passed)
 
 Fleet instructions are injected as a system prompt at launch time — no modifications to the project's `CLAUDE.md` are needed.
 
 ### MCP Tools
 
-Each Claude Code session gets two tools:
+Each agent session gets two tools:
 
 | Tool | Purpose |
 |---|---|
@@ -205,13 +204,13 @@ Each Claude Code session gets two tools:
 
 ### MCP Connection Recovery
 
-The MCP server uses stateless Streamable HTTP transport. Each request is self-contained with no session state, so server restarts are transparent to connected Claude Code sessions — no reconnection or re-initialization needed.
+The MCP server uses stateless Streamable HTTP transport. Each request is self-contained with no session state, so server restarts are transparent to connected agent sessions — no reconnection or re-initialization needed.
 
 If repeated MCP calls fail (e.g. server is down), sessions are instructed to:
 
 1. Continue working normally without fleet tools
 2. Retry once the server is back — stateless requests have no session to become stale
-3. As a last resort, re-register via `claude mcp remove/add`
+3. As a last resort, re-register via `opencode mcp remove/add`
 
 ### Web UI
 
@@ -241,7 +240,7 @@ An autonomous AI coordinator that monitors the fleet:
 ANTHROPIC_API_KEY=sk-... fleet-orchestrator
 
 # Options:
-fleet-orchestrator --url http://127.0.0.1:7700 --model claude-sonnet-4-6 --interval 10
+fleet-orchestrator --url http://127.0.0.1:7700 --model sonnet-4-20250514 --interval 10
 ```
 
 The orchestrator:
@@ -275,7 +274,7 @@ Or in `config/default.json`:
 
 ## Authentication
 
-Set `FLEET_AUTH_TOKEN` to protect access to the fleet manager's API, MCP, WebSocket, and Web UI. This is a local access control token for securing the fleet manager itself — it is not related to your Anthropic API key or Claude authentication. Claude Code sessions use their own Anthropic credentials independently.
+Set `FLEET_AUTH_TOKEN` to protect access to the fleet manager's API, MCP, WebSocket, and Web UI. This is a local access control token for securing the fleet manager itself — it is not related to your AI provider API keys. Agent sessions use their own credentials independently.
 
 ```bash
 FLEET_AUTH_TOKEN=your-secret-token python -m fleet_manager.server
@@ -297,7 +296,7 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 |---|---|---|
 | GET | `/api/sessions` | List all sessions |
 | POST | `/api/sessions` | Register a session |
-| POST | `/api/sessions/start` | Start a new session (creates tmux + launches Claude) |
+| POST | `/api/sessions/start` | Start a new session (creates tmux + launches agent) |
 | GET | `/api/sessions/:id` | Session detail + status log |
 | GET | `/api/sessions/:id/output` | Terminal output (via tmux) |
 | POST | `/api/sessions/:id/fork` | Fork session (branch conversation into new session) |

@@ -108,3 +108,23 @@ async def delete_session(session_id: str):
 
     await stop_session(session_id)
     return {"deleted": True}
+
+
+@router.post("/{session_id}/set_idle")
+async def set_session_idle(session_id: str):
+    """Set a session to IDLE state to allow queued messages to be delivered."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, f"Session '{session_id}' not found")
+
+    from fleet_manager.server import deliver_queued_for_session
+    from fleet_manager.config import get_config
+    
+    cfg = get_config()
+    # Update state to IDLE
+    db.update_status(session_id, "IDLE", f"Manually set to IDLE", session.get("project_root"))
+    # Deliver queued messages
+    session = db.get_session(session_id)
+    await deliver_queued_for_session(session, cfg.sessions.message_prefix)
+    
+    return {"ok": True, "session": session}

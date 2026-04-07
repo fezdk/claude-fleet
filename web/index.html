@@ -36,6 +36,7 @@
       <!-- Tab view -->
       <div id="view-tab" class="view-container hidden">
         <div id="tab-bar" class="tab-bar"></div>
+        <div id="tab-questions" class="tab-questions"></div>
         <pre id="tab-terminal" class="tab-terminal"></pre>
         <div id="tab-keys-bar" class="keys-bar"></div>
         <form id="tab-message-form" class="focus-input-area">
@@ -49,6 +50,7 @@
         <div class="sidetab-layout">
           <div id="sidetab-panel" class="sidetab-panel"></div>
           <div class="sidetab-content">
+            <div id="sidetab-questions" class="sidetab-questions"></div>
             <pre id="sidetab-terminal" class="sidetab-terminal"></pre>
             <div id="sidetab-keys-bar" class="keys-bar"></div>
             <form id="sidetab-message-form" class="focus-input-area">
@@ -101,55 +103,8 @@
           </label>
         </div>
         <pre id="terminal-output"></pre>
-        <div id="detail-keys-bar" class="keys-bar">
-          <div class="keys-group">
-            <button class="key-btn" onclick="sendDetailKey('Up')" title="Up arrow">&#9650;</button>
-            <button class="key-btn" onclick="sendDetailKey('Down')" title="Down arrow">&#9660;</button>
-            <button class="key-btn" onclick="sendDetailKey('Left')" title="Left arrow">&#9664;</button>
-            <button class="key-btn" onclick="sendDetailKey('Right')" title="Right arrow">&#9654;</button>
-          </div>
-          <div class="keys-group">
-            <button class="key-btn key-wide" onclick="sendDetailKey('Enter')" title="Enter">Enter &#9166;</button>
-            <button class="key-btn" onclick="sendDetailKey('Escape')" title="Escape">Esc</button>
-            <button class="key-btn" onclick="sendDetailKey('Tab')" title="Tab">Tab</button>
-          </div>
-          <div class="keys-group">
-            <button class="key-btn key-confirm" onclick="sendDetailKey('y')" title="Yes">y</button>
-            <button class="key-btn key-deny" onclick="sendDetailKey('n')" title="No">n</button>
-            <button class="key-btn" onclick="sendDetailKey('Space')" title="Space">Space</button>
-          </div>
-          <div class="keys-group">
-            <div class="cmd-dropdown-wrapper">
-              <button class="key-btn key-cmd" onclick="toggleDetailCommandDropdown()" title="Send command (no [fleet] prefix)">/ Cmd</button>
-              <div id="detail-cmd-dropdown" class="cmd-dropdown hidden">
-                <div class="cmd-dropdown-item" onclick="sendDetailCommand('/help')">
-                  <span class="cmd-name">/help</span><span class="cmd-desc">Show help</span>
-                </div>
-                <div class="cmd-dropdown-item" onclick="sendDetailCommand('/status')">
-                  <span class="cmd-name">/status</span><span class="cmd-desc">Check status</span>
-                </div>
-                <div class="cmd-dropdown-item" onclick="sendDetailCommand('/review')">
-                  <span class="cmd-name">/review</span><span class="cmd-desc">Review changes</span>
-                </div>
-                <div class="cmd-dropdown-item" onclick="sendDetailCommand('/commit')">
-                  <span class="cmd-name">/commit</span><span class="cmd-desc">Commit staged</span>
-                </div>
-                <div class="cmd-dropdown-item" onclick="sendDetailCommand('/clear')">
-                  <span class="cmd-name">/clear</span><span class="cmd-desc">Clear context</span>
-                </div>
-                <div class="cmd-dropdown-item" onclick="sendDetailCommand('/resume')">
-                  <span class="cmd-name">/resume</span><span class="cmd-desc">Resume previous session</span>
-                </div>
-                <div class="cmd-dropdown-divider"></div>
-                <div class="cmd-dropdown-custom">
-                  <input type="text" id="detail-cmd-custom-input" placeholder="Custom message..." autocomplete="off"
-                         onkeydown="if(event.key==='Enter'){event.preventDefault();sendDetailCustomCommand()}">
-                  <button onclick="sendDetailCustomCommand()" class="btn-sm btn-accent">Send</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <div id="detail-keys-bar" class="keys-bar"></div>
+        <div id="detail-msg-status" class="msg-status hidden"></div>
       </div>
 
       <div class="panel">
@@ -283,7 +238,38 @@
           <textarea id="editor-textarea" class="editor-textarea" spellcheck="false"></textarea>
         </div>
       </div>
-      <div id="editor-status" class="msg-status hidden"></div>
+    </div>
+  </div>
+
+  <!-- Peek Last Overlay -->
+  <div id="peek-overlay" class="focus-overlay hidden" onclick="if(event.target===this)closePeek()">
+    <div class="editor-modal">
+      <div class="editor-header">
+        <div class="editor-title">
+          <h2 id="peek-title">Peek Last Lines</h2>
+          <span id="peek-breadcrumb" class="editor-breadcrumb"></span>
+        </div>
+        <div class="editor-actions">
+          <button class="btn-sm" onclick="closePeek()">Close</button>
+        </div>
+      </div>
+      <div id="peek-picker" class="editor-picker">
+        <div class="editor-picker-nav">
+          <button id="peek-up-btn" class="btn-sm" onclick="peekNavigateUp()" title="Parent directory">.. up</button>
+          <span id="peek-cwd" class="editor-cwd"></span>
+        </div>
+        <div id="peek-file-list" class="editor-file-list"></div>
+      </div>
+      <div id="peek-content" class="editor-content hidden">
+        <div class="editor-toolbar">
+          <button class="btn-sm" onclick="peekBackToPicker()">Browse</button>
+          <span id="peek-filename" class="editor-filename"></span>
+          <span id="peek-info" class="editor-size"></span>
+        </div>
+        <div class="editor-body">
+          <pre id="peek-text" class="peek-text"></pre>
+        </div>
+      </div>
     </div>
   </div>
 

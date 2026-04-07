@@ -1,6 +1,8 @@
 """Fleet Orchestrator — an autonomous coordinator that monitors sessions,
 answers routine questions, dispatches tasks, and escalates to the human.
 
+NOTE: This module is incomplete / non-functional. Do not use.
+
 Uses the Anthropic API as its reasoning engine and connects to the fleet
 manager via REST API.
 
@@ -27,6 +29,10 @@ import urllib.request
 from dataclasses import dataclass, field
 
 import anthropic
+
+# TODO: remove this quick exit when orchestrator is completed
+print("Error: orchestrator is incomplete and not functional")
+sys.exit(1)
 
 logger = logging.getLogger(__name__)
 

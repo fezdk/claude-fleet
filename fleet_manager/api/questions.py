@@ -55,3 +55,22 @@ async def answer_question(question_id: str, payload: AnswerPayload):
     await inject_input(session["tmux_session"], session["tmux_pane"], answer_json)
 
     return answered
+
+
+@router.delete("/{question_id}")
+async def dismiss_question(question_id: str):
+    """Dismiss a question without sending an answer to the session.
+    
+    Use this when the user will answer directly in the terminal via plaintext.
+    """
+    question = db.get_question(question_id)
+    if not question:
+        raise HTTPException(404, f"Question '{question_id}' not found")
+    if question["answered"]:
+        raise HTTPException(409, "Question already answered")
+
+    # Mark as answered with a special marker to indicate dismissal
+    dismissed = db.answer_question(question_id, json.dumps({"__dismissed__": True}))
+    await ws_manager.broadcast("question:answered", dismissed)
+    
+    return dismissed

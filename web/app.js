@@ -13,6 +13,7 @@ let focusRefreshTimer = null;
 let viewMode = localStorage.getItem('fleet_view_mode') || 'list';
 let activeTabSessionId = null;
 let viewRefreshTimer = null;
+let terminalMode = 'standard';
 
 // ── Message History (per-session) ──
 
@@ -385,8 +386,66 @@ function renderTabView(sessions) {
   // Load terminal for active tab
   if (activeTabSessionId) {
     loadTerminalInto(activeTabSessionId, 'tab-terminal');
+    // Check for pending questions on active tab
+    showTabQuestionModal(activeTabSessionId);
   } else {
     document.getElementById('tab-terminal').innerHTML = '<span style="color:var(--text-muted);padding:1rem;display:block">No sessions — start one with + New Session</span>';
+  }
+}
+
+async function showTabQuestionModal(sessionId) {
+  try {
+    const questions = await api(`/api/questions/${sessionId}`);
+    if (questions.length === 0) return;
+    const container = document.getElementById('tab-questions');
+    container.innerHTML = questions.map(q => {
+      const items = JSON.parse(q.items);
+      return `
+        <div class="question-item" data-qid="${q.question_id}">
+          ${q.context ? `<div class="q-context">${esc(q.context)}</div>` : ''}
+          ${items.map(renderQuestionInput).join('')}
+          <div class="q-actions">
+            <button onclick="submitTabAnswer('${q.question_id}')">Submit</button>
+            <button class="btn-muted" onclick="dismissTabQuestion('${q.question_id}')">Dismiss</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch {}
+}
+
+async function submitTabAnswer(questionId) {
+  const container = document.querySelector(`#tab-questions [data-qid="${questionId}"]`);
+  const answer = {};
+  container.querySelectorAll('input[type="text"], select').forEach(el => {
+    answer[el.id.replace('q-', '')] = el.value;
+  });
+  container.querySelectorAll('input[type="checkbox"]:checked').forEach(el => {
+    const cls = [...el.className].find(c => c.startsWith('ms-'));
+    if (cls) {
+      const itemId = cls.replace('ms-', '');
+      if (!answer[itemId]) answer[itemId] = [];
+      answer[itemId].push(el.value);
+    }
+  });
+  try {
+    await api(`/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    });
+    showTabQuestionModal(activeTabSessionId);
+  } catch (e) {
+    console.error('Answer error:', e);
+  }
+}
+
+async function dismissTabQuestion(questionId) {
+  if (!confirm('Dismiss this question?')) return;
+  try {
+    await api(`/api/questions/${questionId}`, { method: 'DELETE' });
+    showTabQuestionModal(activeTabSessionId);
+  } catch (e) {
+    console.error('Dismiss error:', e);
   }
 }
 
@@ -395,6 +454,7 @@ function selectTab(sessionId) {
   activeTabSessionId = sessionId;
   refreshDashboard();
   restoreDraft(document.getElementById('tab-msg-input'));
+  showTabQuestionModal(sessionId);
 }
 
 function renderSideTabView(sessions) {
@@ -430,8 +490,65 @@ function renderSideTabView(sessions) {
   // Load terminal for active session
   if (activeTabSessionId) {
     loadTerminalInto(activeTabSessionId, 'sidetab-terminal');
+    showSideTabQuestionModal(activeTabSessionId);
   } else {
     document.getElementById('sidetab-terminal').innerHTML = '<span style="color:var(--text-muted);padding:1rem;display:block">No sessions — start one with + New Session</span>';
+  }
+}
+
+async function showSideTabQuestionModal(sessionId) {
+  try {
+    const questions = await api(`/api/questions/${sessionId}`);
+    if (questions.length === 0) return;
+    const container = document.getElementById('sidetab-questions');
+    container.innerHTML = questions.map(q => {
+      const items = JSON.parse(q.items);
+      return `
+        <div class="question-item" data-qid="${q.question_id}">
+          ${q.context ? `<div class="q-context">${esc(q.context)}</div>` : ''}
+          ${items.map(renderQuestionInput).join('')}
+          <div class="q-actions">
+            <button onclick="submitSideTabAnswer('${q.question_id}')">Submit</button>
+            <button class="btn-muted" onclick="dismissSideTabQuestion('${q.question_id}')">Dismiss</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch {}
+}
+
+async function submitSideTabAnswer(questionId) {
+  const container = document.querySelector(`#sidetab-questions [data-qid="${questionId}"]`);
+  const answer = {};
+  container.querySelectorAll('input[type="text"], select').forEach(el => {
+    answer[el.id.replace('q-', '')] = el.value;
+  });
+  container.querySelectorAll('input[type="checkbox"]:checked').forEach(el => {
+    const cls = [...el.className].find(c => c.startsWith('ms-'));
+    if (cls) {
+      const itemId = cls.replace('ms-', '');
+      if (!answer[itemId]) answer[itemId] = [];
+      answer[itemId].push(el.value);
+    }
+  });
+  try {
+    await api(`/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    });
+    showSideTabQuestionModal(activeTabSessionId);
+  } catch (e) {
+    console.error('Answer error:', e);
+  }
+}
+
+async function dismissSideTabQuestion(questionId) {
+  if (!confirm('Dismiss this question?')) return;
+  try {
+    await api(`/api/questions/${questionId}`, { method: 'DELETE' });
+    showSideTabQuestionModal(activeTabSessionId);
+  } catch (e) {
+    console.error('Dismiss error:', e);
   }
 }
 
@@ -440,6 +557,7 @@ function selectSideTab(sessionId) {
   activeTabSessionId = sessionId;
   refreshDashboard();
   restoreDraft(document.getElementById('sidetab-msg-input'));
+  showSideTabQuestionModal(sessionId);
 }
 
 function showDashboard() {
@@ -456,41 +574,56 @@ function showDashboard() {
 
 // ── Shared View Functions ──
 
-function generateKeysBarHtml(prefix) {
+function isMobile() {
+  return window.innerWidth <= 768 || window.matchMedia('(max-width: 768px)').matches;
+}
+
+function generateKeysBarHtml(prefix, sessionVar) {
+  const sv = sessionVar || 'activeTabSessionId';
+  const scrollBtns = terminalMode === 'opencode' ? `
+    <div class="keys-group">
+      <button class="key-btn" onclick="sendKeyTo(${sv},'ScrollUp','${prefix}-terminal')" title="Scroll up">&#9650;Scroll</button>
+      <button class="key-btn" onclick="sendKeyTo(${sv},'ScrollDown','${prefix}-terminal')" title="Scroll down">&#9660;Scroll</button>
+    </div>
+  ` : '';
   return `
     <div class="keys-group">
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Up','${prefix}-terminal')" title="Up arrow">&#9650;</button>
-      <button class="key-btn" onclick="sendKeyTo(activeTabSessionId,'Down','${prefix}-terminal')" title="Down arrow">&#9660;</button>
+      <button class="key-btn" onclick="sendKeyTo(${sv},'Up','${prefix}-terminal')" title="Up arrow">&#9650;</button>
+      <button class="key-btn" onclick="sendKeyTo(${sv},'Down','${prefix}-terminal')" title="Down arrow">&#9660;</button>
     </div>
+    ${scrollBtns}
     <div class="keys-group">
       <div class="cmd-dropdown-wrapper">
         <button class="key-btn key-cmd" onclick="toggleViewCommandDropdown('${prefix}')" title="Send command">/ Cmd</button>
         <div id="${prefix}-cmd-dropdown" class="cmd-dropdown hidden">
           <div class="cmd-dropdown-close" onclick="closeViewDropdown('${prefix}')">&times;</div>
-          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/help','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(${sv},'/help','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/help</span><span class="cmd-desc">Show help</span>
           </div>
-          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/status','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(${sv},'/status','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/status</span><span class="cmd-desc">Check status</span>
           </div>
-          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/review','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(${sv},'/review','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/review</span><span class="cmd-desc">Review changes</span>
           </div>
-          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/commit','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(${sv},'/commit','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/commit</span><span class="cmd-desc">Commit staged</span>
           </div>
-          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/clear','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(${sv},'/clear','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/clear</span><span class="cmd-desc">Clear context</span>
           </div>
-          <div class="cmd-dropdown-item" onclick="sendCommandTo(activeTabSessionId,'/resume','${prefix}-msg-status');closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="sendCommandTo(${sv},'/resume','${prefix}-msg-status');closeViewDropdown('${prefix}')">
             <span class="cmd-name">/resume</span><span class="cmd-desc">Resume previous session</span>
           </div>
           <div class="cmd-dropdown-divider"></div>
-          <div class="cmd-dropdown-item" onclick="remindSession(activeTabSessionId);closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item" onclick="remindSession(${sv});closeViewDropdown('${prefix}')">
             <span class="cmd-name">📋 Remind</span><span class="cmd-desc">Re-inject fleet instructions</span>
           </div>
-          <div class="cmd-dropdown-item cmd-dropdown-unstick" onclick="unstickSession(activeTabSessionId);closeViewDropdown('${prefix}')">
+          <div class="cmd-dropdown-item cmd-dropdown-unstick" onclick="unstickSession(${sv});closeViewDropdown('${prefix}')">
             <span class="cmd-name">🚨 Unstick</span><span class="cmd-desc">Send "wait" + Enter</span>
+          </div>
+          <div class="cmd-dropdown-item" onclick="setSessionIdle(${sv});closeViewDropdown('${prefix}')">
+            <span class="cmd-name">⏸️ Idle</span><span class="cmd-desc">Set to IDLE (delivers queued)</span>
           </div>
           <div class="cmd-dropdown-divider"></div>
           <div class="cmd-dropdown-custom">
@@ -502,11 +635,12 @@ function generateKeysBarHtml(prefix) {
       </div>
     </div>
     <div class="keys-group">
-      <button class="key-btn key-esc" onclick="sendKeyTo(activeTabSessionId,'Escape','${prefix}-terminal')" title="Escape">Esc</button>
-      <button class="key-btn key-wide" onclick="sendKeyTo(activeTabSessionId,'Enter','${prefix}-terminal')" title="Enter">Enter &#9166;</button>
+      <button class="key-btn key-esc" onclick="sendKeyTo(${sv},'Escape','${prefix}-terminal')" title="Escape">Esc</button>
+      <button class="key-btn key-wide" onclick="sendKeyTo(${sv},'Enter','${prefix}-terminal')" title="Enter">Enter &#9166;</button>
     </div>
     <div class="keys-group keys-right">
-      <button class="key-btn" onclick="openEditor(activeTabSessionId)" title="Edit files">Edit</button>
+      <button class="key-btn" onclick="openEditor(${sv})" title="Edit files">Edit</button>
+      <button class="key-btn" onclick="peekLast(${sv})" title="Peek last lines of a file">Last</button>
     </div>
   `;
 }
@@ -570,6 +704,7 @@ function showStatusMsg(elId, text, type) {
 // Track loaded line counts per terminal element for lazy loading
 const terminalLines = {};
 const terminalLoading = {};
+const terminalLastScrollTop = {};
 const INITIAL_LINES = 200;
 const LOAD_MORE_STEP = 500;
 const MAX_LINES = 5000;
@@ -588,6 +723,20 @@ async function loadTerminalInto(sessionId, preElId, lines) {
     if (!pre.dataset.scrollWatch) {
       pre.dataset.scrollWatch = '1';
       pre.addEventListener('scroll', () => onTerminalScroll(pre, preElId, sessionId));
+      // For opencode mode on non-mobile, catch mouse wheel and send scroll keys
+      // Mobile users can use the scroll buttons instead
+      if (terminalMode === 'opencode' && !isMobile()) {
+        pre.addEventListener('wheel', (e) => {
+          const sessionId = pre.dataset.sessionId || sessionId;
+          if (!sessionId) return;
+          e.preventDefault();
+          const key = e.deltaY > 0 ? 'ScrollDown' : 'ScrollUp';
+          api(`/api/sessions/${sessionId}/keys`, {
+            method: 'POST',
+            body: JSON.stringify({ keys: [key] })
+          });
+        }, { passive: false });
+      }
     }
     // Update session ID for scroll handler
     pre.dataset.sessionId = sessionId;
@@ -597,7 +746,29 @@ async function loadTerminalInto(sessionId, preElId, lines) {
 }
 
 async function onTerminalScroll(pre, preElId, fallbackSessionId) {
-  // Load more when scrolled near the top
+  // For opencode mode on desktop, send scroll events to the terminal instead of loading history
+  // Mobile users use scroll buttons instead
+  if (terminalMode === 'opencode' && !isMobile()) {
+    const sessionId = pre.dataset.sessionId || fallbackSessionId;
+    if (!sessionId) return;
+    
+    // Determine scroll direction from current scroll position vs previous
+    // For simplicity, just request a small scroll - actual direction would need tracking
+    const newScrollTop = pre.scrollTop;
+    const scrollDelta = terminalLastScrollTop[preElId] - newScrollTop;
+    terminalLastScrollTop[preElId] = newScrollTop;
+    
+    if (Math.abs(scrollDelta) < 20) return;  // Ignore small scrolls
+    
+    const key = scrollDelta > 0 ? 'ScrollUp' : 'ScrollDown';
+    await api(`/api/sessions/${sessionId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ keys: [key] })
+    });
+    return;
+  }
+  
+  // Standard mode: load more when scrolled near the top
   if (pre.scrollTop > 50) return;
   const currentLines = terminalLines[preElId] || INITIAL_LINES;
   if (currentLines >= MAX_LINES) return;
@@ -707,6 +878,7 @@ async function showSession(sessionId) {
   currentSessionId = sessionId;
   document.getElementById('dashboard').classList.add('hidden');
   document.getElementById('session-detail').classList.remove('hidden');
+  document.getElementById('detail-keys-bar').innerHTML = generateKeysBarHtml('detail', 'currentSessionId');
   await Promise.all([
     loadSessionDetail(sessionId),
     loadQuestions(sessionId),
@@ -761,7 +933,10 @@ async function loadQuestions(sessionId) {
         <div class="question-item" data-qid="${q.question_id}">
           ${q.context ? `<div class="q-context">${esc(q.context)}</div>` : ''}
           ${items.map(renderQuestionInput).join('')}
-          <button onclick="submitAnswer('${q.question_id}')">Submit Answer</button>
+          <div class="q-actions">
+            <button onclick="submitAnswer('${q.question_id}')">Submit Answer</button>
+            <button class="btn-muted" onclick="dismissQuestion('${q.question_id}')">Dismiss</button>
+          </div>
         </div>
       `;
     }).join('');
@@ -817,6 +992,16 @@ async function submitAnswer(questionId) {
     loadQuestions(currentSessionId);
   } catch (e) {
     console.error('Answer error:', e);
+  }
+}
+
+async function dismissQuestion(questionId) {
+  if (!confirm('Dismiss this question? The session will continue without an answer and can be replied to directly in the terminal.')) return;
+  try {
+    await api(`/api/questions/${questionId}`, { method: 'DELETE' });
+    loadQuestions(currentSessionId);
+  } catch (e) {
+    console.error('Dismiss error:', e);
   }
 }
 
@@ -1306,7 +1491,10 @@ async function showQuestionModal(sessionId) {
         <div class="question-item" data-qid="${q.question_id}">
           ${q.context ? `<div class="q-context">${esc(q.context)}</div>` : ''}
           ${items.map(renderQuestionInput).join('')}
-          <button onclick="submitFocusAnswer('${q.question_id}')">Submit Answer</button>
+          <div class="q-actions">
+            <button onclick="submitFocusAnswer('${q.question_id}')">Submit Answer</button>
+            <button class="btn-muted" onclick="dismissFocusQuestion('${q.question_id}')">Dismiss</button>
+          </div>
         </div>
       `;
     }).join('');
@@ -1349,6 +1537,21 @@ async function submitFocusAnswer(questionId) {
     }
   } catch (e) {
     console.error('Answer error:', e);
+  }
+}
+
+async function dismissFocusQuestion(questionId) {
+  if (!confirm('Dismiss this question? The session will continue without an answer and can be replied to directly in the terminal.')) return;
+  try {
+    await api(`/api/questions/${questionId}`, { method: 'DELETE' });
+    const remaining = await api(`/api/questions/${focusSessionId}`);
+    if (remaining.length === 0) {
+      closeQuestionModal();
+    } else {
+      showQuestionModal(focusSessionId);
+    }
+  } catch (e) {
+    console.error('Dismiss error:', e);
   }
 }
 
@@ -1671,6 +1874,20 @@ async function remindSession(sessionId) {
   }
 }
 
+// ── Set Session to Idle ──
+
+async function setSessionIdle(sessionId) {
+  if (!sessionId) return;
+  if (!confirm(`Set "${sessionId}" to IDLE state?\n\nThis will allow queued messages to be delivered.`)) return;
+  try {
+    await api(`/api/sessions/${sessionId}/set_idle`, { method: 'POST' });
+    showStatusMsg('focus-msg-status', `Set ${sessionId} to IDLE`, 'success');
+    refreshDashboard();
+  } catch (e) {
+    alert(`Failed: ${e.message}`);
+  }
+}
+
 // ── File Editor ──
 
 let editorSessionId = null;
@@ -1704,6 +1921,88 @@ function closeEditor() {
   editorFilePath = null;
   editorOrigContent = null;
   document.getElementById('editor-overlay').classList.add('hidden');
+}
+
+// ── Peek Last Lines ──
+
+let peekSessionId = null;
+let peekProjectRoot = null;
+let peekRelPath = '';
+
+function peekLast(sessionId) {
+  if (!sessionId) return;
+  peekSessionId = sessionId;
+  peekRelPath = '';
+  document.getElementById('peek-overlay').classList.remove('hidden');
+  peekBrowse('');
+}
+
+function closePeek() {
+  peekSessionId = null;
+  peekProjectRoot = null;
+  peekRelPath = '';
+  document.getElementById('peek-overlay').classList.add('hidden');
+}
+
+async function peekBrowse(relPath) {
+  peekRelPath = relPath;
+  const showHidden = document.getElementById('editor-show-hidden')?.checked || false;
+  try {
+    const data = await api(`/api/filesystem/list?session_id=${encodeURIComponent(peekSessionId)}&path=${encodeURIComponent(relPath)}&show_hidden=${showHidden}`);
+    peekProjectRoot = data.project_root;
+    document.getElementById('peek-up-btn').disabled = data.parent_path === null;
+    document.getElementById('peek-cwd').textContent = data.current_path || '/';
+    renderPeekFileList(data.entries);
+  } catch (e) {
+    console.error('Peek browse error:', e);
+  }
+}
+
+function renderPeekFileList(entries) {
+  const container = document.getElementById('peek-file-list');
+  if (!entries.length) {
+    container.innerHTML = '<div class="editor-empty">Empty directory</div>';
+    return;
+  }
+  container.innerHTML = entries.map(entry => `
+    <div class="editor-file-item" onclick="${entry.type === 'dir' ? `peekBrowse('${esc(peekRelPath + '/' + entry.name).replace(/'/g, "\\'")}')` : `peekViewFile('${esc(entry.name)}')`}">
+      <span class="file-icon">${entry.type === 'dir' ? '📁' : '📄'}</span>
+      <span class="file-name ${entry.type === 'dir' ? 'is-dir' : ''}">${esc(entry.name)}</span>
+      ${entry.size !== undefined ? `<span class="file-size">${fmtSize(entry.size)}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+async function peekViewFile(fileName) {
+  const relPath = peekRelPath ? peekRelPath + '/' + fileName : fileName;
+  try {
+    const data = await api(`/api/filesystem/tail?session_id=${encodeURIComponent(peekSessionId)}&path=${encodeURIComponent(relPath)}&lines=200`);
+    document.getElementById('peek-picker').classList.add('hidden');
+    document.getElementById('peek-content').classList.remove('hidden');
+    document.getElementById('peek-filename').textContent = data.path;
+    document.getElementById('peek-info').textContent = `${data.total_lines} lines · ${fmtSize(data.size)}`;
+    document.getElementById('peek-text').textContent = data.content;
+  } catch (e) {
+    alert(`Failed to read file: ${e.message}`);
+  }
+}
+
+function peekNavigateUp() {
+  if (!peekRelPath) return;
+  const parent = peekRelPath.split('/').slice(0, -1).join('/');
+  peekBrowse(parent);
+}
+
+function peekBackToPicker() {
+  document.getElementById('peek-content').classList.add('hidden');
+  document.getElementById('peek-picker').classList.remove('hidden');
+  peekBrowse(peekRelPath);
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 async function editorBrowse(relPath) {
@@ -1890,3 +2189,16 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+
+// Load terminal mode config
+async function loadTerminalMode() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    terminalMode = cfg.terminal_mode || 'standard';
+    console.log('Terminal mode:', terminalMode);
+  } catch {
+    terminalMode = 'standard';
+  }
+}
+loadTerminalMode();

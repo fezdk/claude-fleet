@@ -21,7 +21,8 @@
   },
   "ui": {
     "terminal_capture_lines": 200,
-    "max_status_history": 100
+    "max_status_history": 100,
+    "terminal_mode": "opencode"
   },
   "notifications": {
     "on_awaiting_input": true,

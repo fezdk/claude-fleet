@@ -357,6 +357,15 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   cursor: pointer;
   font-weight: 600;
 }
+.question-item .q-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.question-item .btn-muted {
+  background: var(--text-muted);
+  color: #fff;
+}
 
 /* Status log */
 .log-entry {
@@ -892,6 +901,12 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   white-space: pre;
   line-height: 1.4;
 }
+.tab-questions {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  max-height: 150px;
+  overflow-y: auto;
+}
 
 /* ========== Side-Tab View ========== */
 .sidetab-layout {
@@ -951,9 +966,16 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   white-space: pre;
   line-height: 1.4;
 }
+.sidetab-questions {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  max-height: 150px;
+  overflow-y: auto;
+}
 
 /* ========== File Editor ========== */
 #editor-overlay { z-index: 910; }
+#peek-overlay { z-index: 950; }
 .editor-modal {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1123,6 +1145,19 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   color: #cdd6f4;
   white-space: pre;
   overflow: auto;
+}
+.peek-text {
+  flex: 1;
+  margin: 0;
+  padding: 0.75rem;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #cdd6f4;
+  background: #1e1e2e;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 .editor-modal .msg-status { margin: 0 0.75rem 0.5rem; }
 [data-theme="dark"] .editor-modal { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
