@@ -35,7 +35,7 @@ Clients (Phone / Laptop / Orchestrator)
 ## Installation
 
 ```bash
-cd claude_fleet
+cd agent-fleet
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -46,7 +46,7 @@ pip install -e .
 The fleet manager server must be running before any sessions can connect.
 
 ```bash
-cd claude_fleet
+cd agent-fleet
 source .venv/bin/activate
 python -m fleet_manager.server
 ```
@@ -130,7 +130,7 @@ opencode mcp add --transport http --scope user fleet-manager http://127.0.0.1:77
 With the server running, open a new terminal and activate the venv:
 
 ```bash
-cd claude_fleet
+cd agent-fleet
 source .venv/bin/activate
 ```
 

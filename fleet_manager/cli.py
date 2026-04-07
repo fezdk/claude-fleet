@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from fleet_manager.db import init_db
 from fleet_manager.session_launcher import LaunchError, start_session, stop_session, fork_session
 
 
@@ -111,6 +112,7 @@ def cmd_stop(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    init_db()
     parser = argparse.ArgumentParser(prog="fleet", description="Claude Fleet Manager CLI")
     sub = parser.add_subparsers(dest="command")
 
