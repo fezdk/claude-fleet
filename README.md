@@ -105,6 +105,20 @@ ipconfig getifaddr en0            # macOS
 
 > **Note:** Your SSH server must allow this — ensure `GatewayPorts clientspecified` (or `yes`) is set in `/etc/ssh/sshd_config` on the machine running the tunnel. Also make sure `FLEET_AUTH_TOKEN` is set, since the dashboard will be exposed to the local network.
 
+#### WireGuard VPN
+
+Instead of SSH tunneling, you can use WireGuard to add both the server and clients (laptop, phone) to the same VPN network. This gives direct access without port forwarding:
+
+```bash
+# On the server, install WireGuard and set up a peer
+sudo apt install wireguard-tools
+wg-quick up wg0  # after configuring /etc/wireguard/wg0.conf
+
+# Access from anywhere at http://<server-vpn-ip>:7700
+```
+
+This is simpler than SSH tunnels for multi-device access and works from anywhere on the internet.
+
 ## MCP Server Registration
 
 Sessions started via `fleet start` or the web UI automatically register the MCP server with the agent — no manual setup needed.

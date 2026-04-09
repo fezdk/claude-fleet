@@ -10,3 +10,5 @@ build/
 .mcp.json
 nohup.out
 .env
+*.db
+*~
