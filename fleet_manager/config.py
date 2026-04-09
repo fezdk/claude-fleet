@@ -42,7 +42,7 @@ class TmuxConfig:
 class UiConfig:
     terminal_capture_lines: int = 50
     max_status_history: int = 100
-    terminal_mode: str = "standard"  # "standard" for claude, "opencode" for opencode TUI
+    terminal_mode: str = "standard"  # "standard" for normal terminal UI, "opencode" for opencode TUI
 
 
 @dataclass

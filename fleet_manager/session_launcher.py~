@@ -29,7 +29,7 @@ def _tmux_sync(*args: str) -> subprocess.CompletedProcess:
 async def start_session(
     name: str,
     project: str,
-    agent: str = "opencode",
+    agent: str = "claude-code",
     port: int = 7700,
 ) -> dict:
     """Start a new fleet-managed agent session.

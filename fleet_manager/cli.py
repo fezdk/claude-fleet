@@ -36,16 +36,18 @@ def _fleet_api(port: int, method: str, path: str) -> dict | list | None:
 def cmd_start(args: argparse.Namespace) -> None:
     name = args.name
     project = str(Path(args.project).resolve())
+    agent = args.agent
     port = args.port
 
     try:
-        session = asyncio.run(start_session(name, project, port))
+        session = asyncio.run(start_session(name, project, agent, port))
     except LaunchError as e:
         print(f"Error: {e}")
         sys.exit(1)
 
     print(f"Started session '{name}'")
     print(f"\n  Project:  {project}")
+    print(f"  Agent:    {agent}")
     print(f"  tmux:     fleet-{name}")
     print(f"  Web UI:   http://127.0.0.1:{port}")
 
@@ -113,12 +115,14 @@ def cmd_stop(args: argparse.Namespace) -> None:
 
 def main() -> None:
     init_db()
-    parser = argparse.ArgumentParser(prog="fleet", description="Claude Fleet Manager CLI")
+    parser = argparse.ArgumentParser(prog="fleet", description="Agent Fleet Manager CLI")
     sub = parser.add_subparsers(dest="command")
 
-    start_p = sub.add_parser("start", help="Start a new fleet-managed Claude Code session")
+    start_p = sub.add_parser("start", help="Start a new fleet-managed agent session")
     start_p.add_argument("--name", required=True, help="Session name")
     start_p.add_argument("--project", default=".", help="Project directory")
+    start_p.add_argument("--agent", default="opencode", choices=["opencode", "claude-code", "copilot"],
+                         help="Agent to launch (default: opencode)")
     start_p.add_argument("--port", type=int, default=7700, help="Fleet manager port")
     start_p.add_argument("-d", "--detach", action="store_true",
                          help="Don't attach to the session (useful for batch-starting multiple sessions)")

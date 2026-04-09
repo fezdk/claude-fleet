@@ -16,8 +16,8 @@ Clients (Phone / Laptop / Orchestrator)
 │  MCP Server (HTTP) · tmux     │
 └────┬──────────┬──────────┬─────┘
      │          │          │
-  tmux:api   tmux:fe    tmux:ml
-  opencode  opencode   opencode
+   tmux:api   tmux:fe    tmux:ml
+   agent     agent      agent
 ```
 
 ## Prerequisites
@@ -30,7 +30,7 @@ Clients (Phone / Laptop / Orchestrator)
   # macOS
   brew install tmux
   ```
-- **opencode** CLI installed and authenticated (or any compatible agent CLI)
+- **opencode**, **Claude Code**, or **Copilot** CLI installed and authenticated
 
 ## Installation
 
@@ -137,8 +137,12 @@ source .venv/bin/activate
 Now `fleet` is available and can be run from any directory:
 
 ```bash
-# Start a session (creates tmux + launches opencode, then attaches)
+# Start a session (creates tmux + launches agent, then attaches)
 fleet start --name api --project /path/to/api
+
+# Start with a specific agent (default: opencode)
+fleet start --name api --project /path/to/api --agent claude-code
+fleet start --name ml --project /path/to/ml --agent copilot
 
 # Start multiple sessions in batch (detached mode)
 fleet start --name api --project /path/to/api -d
@@ -151,7 +155,7 @@ fleet attach api
 
 ### From the Web UI
 
-Click **+ New Session** in the dashboard header. Enter the project path (absolute path on the server) and optionally a session name (defaults to the directory name). The session launches detached — use the dashboard to monitor and interact.
+Click **+ New Session** in the dashboard header. Select the agent (opencode, Claude Code, or copilot), enter the project path (absolute path on the server), and optionally a session name (defaults to the directory name). The session launches detached — use the dashboard to monitor and interact.
 
 ### Session Lifecycle
 
@@ -177,7 +181,7 @@ Forking requires the source session to have reported its session ID (happens aut
 ### CLI Commands
 
 ```bash
-fleet start --name <name> --project <path>   # Start a session
+fleet start --name <name> --project <path> [--agent opencode|claude-code|copilot] # Start a session
 fleet start --name <name> --project <path> -d # Start detached
 fleet list                                    # List sessions
 fleet attach <name>                           # Attach to tmux
@@ -190,6 +194,8 @@ fleet stop <name>                             # Stop session + cleanup
 2. Register the MCP server with the agent (if not already registered)
 3. Launch the agent with fleet instructions via `--prompt`
 4. Attach to the session (unless `-d` is passed)
+
+Supported agents: `opencode` (default), `claude-code`, `copilot`. Only `claude-code` sessions can be forked.
 
 Fleet instructions are injected as a system prompt at launch time — no modifications to the project's `CLAUDE.md` are needed.
 
@@ -296,7 +302,7 @@ When `FLEET_AUTH_TOKEN` is empty or unset, auth is disabled and everything works
 |---|---|---|
 | GET | `/api/sessions` | List all sessions |
 | POST | `/api/sessions` | Register a session |
-| POST | `/api/sessions/start` | Start a new session (creates tmux + launches agent) |
+| POST | `/api/sessions/start` | Start a new session (creates tmux + launches agent). Body: `{"project": "...", "name": "", "agent": "opencode"}` |
 | GET | `/api/sessions/:id` | Session detail + status log |
 | GET | `/api/sessions/:id/output` | Terminal output (via tmux) |
 | POST | `/api/sessions/:id/fork` | Fork session (branch conversation into new session) |

@@ -1559,7 +1559,7 @@ async function dismissFocusQuestion(questionId) {
 
 function showNewSessionModal() {
   document.getElementById('new-session-overlay').classList.remove('hidden');
-  document.getElementById('ns-agent').value = 'opencode';
+  document.getElementById('ns-agent').value = 'claude-code';
   document.getElementById('ns-project').value = '';
   document.getElementById('ns-name').value = '';
   document.getElementById('ns-error').classList.add('hidden');

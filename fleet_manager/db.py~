@@ -90,7 +90,7 @@ def _migrate(db: sqlite3.Connection) -> None:
     cursor = db.execute("PRAGMA table_info(sessions)")
     columns = {row["name"] for row in cursor.fetchall()}
     if "agent" not in columns:
-        db.execute("ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT 'opencode'")
+        db.execute("ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT 'claude-code'")
         db.commit()
 
     cursor = db.execute("PRAGMA table_info(inbox)")
@@ -111,7 +111,7 @@ def _create_schema() -> None:
             state         TEXT DEFAULT 'IDLE',
             summary       TEXT,
             detail        TEXT,
-            agent         TEXT DEFAULT 'opencode',
+            agent         TEXT DEFAULT 'claude-code',
             claude_session_id TEXT,
             last_seen     DATETIME,
             created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -165,7 +165,7 @@ def create_session(
     tmux_session: str,
     tmux_pane: str = "0",
     project_root: str | None = None,
-    agent: str = "opencode",
+    agent: str = "claude-code",
 ) -> dict[str, Any]:
     db = get_db()
     db.execute(

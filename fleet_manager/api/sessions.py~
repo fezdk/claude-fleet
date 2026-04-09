@@ -21,7 +21,7 @@ class RegisterPayload(BaseModel):
 
 
 class StartPayload(BaseModel):
-    agent: str = "opencode"
+    agent: str = "claude-code"
     name: str = ""
     project: str
 
@@ -52,7 +52,7 @@ async def register_session(payload: RegisterPayload):
 async def start_new_session(payload: StartPayload):
     project = payload.project.rstrip("/")
     name = payload.name.strip() or project.rstrip("/").rsplit("/", 1)[-1]
-    agent = payload.agent.strip() or "opencode"
+    agent = payload.agent.strip() or "claude-code"
 
     cfg = get_config()
     try:

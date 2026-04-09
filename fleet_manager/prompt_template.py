@@ -1,13 +1,13 @@
-"""Fleet Manager prompt template for opencode sessions.
+"""Fleet Manager prompt template for agent sessions.
 
-Generates the system prompt that instructs an opencode session how to
+Generates the system prompt that instructs an agent session how to
 participate in the fleet. Passed via --prompt at launch.
 """
 
 FLEET_PROMPT_TEMPLATE = """\
 ## Fleet Manager Integration
 
-You are part of a managed fleet of opencode sessions. You have two MCP tools
+You are part of a managed fleet of agent sessions. You have MCP tools
 for fleet communication. Follow these rules strictly:
 
 ### Your Session Identity
@@ -68,9 +68,8 @@ print("Which environment? [staging/prod/dev]")
   stateless requests have no session to become stale.
 - If repeated calls fail (server down), keep working normally. You are still
   functional without fleet tools.
-- As a last resort, re-establish the connection by running:
-  `opencode mcp remove fleet-manager && opencode mcp add --transport http fleet-manager {mcp_url}`
-  Then call `report_status` to re-register with the fleet.
+- As a last resort, re-establish the connection by removing and re-adding the
+  MCP server, then call `report_status` to re-register with the fleet.
 """
 
 

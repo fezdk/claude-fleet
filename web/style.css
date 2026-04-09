@@ -719,7 +719,8 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   margin-bottom: 1rem;
 }
 .login-card input[type="password"],
-.login-card input[type="text"] {
+.login-card input[type="text"],
+.login-card select {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -729,7 +730,8 @@ header h1 { font-size: 1.3rem; font-weight: 600; }
   color: var(--text);
 }
 .login-card input[type="password"]:focus,
-.login-card input[type="text"]:focus {
+.login-card input[type="text"]:focus,
+.login-card select:focus {
   border-color: var(--accent);
   outline: none;
 }
